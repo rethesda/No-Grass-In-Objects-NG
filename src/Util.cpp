@@ -97,10 +97,10 @@ namespace Util
 				for (auto& c : substr)
 					c = static_cast<char>(std::tolower(c));
 
-				if (substr == "fe")
+				if (substr == "fe" || substr == "0x")
 					idstr.erase(0, 2);
 
-				id = stoi(idstr, nullptr, 16);
+				id = stoul(idstr, nullptr, 16);
 				sucess = true;
 			} catch (std::exception&) {
 				sucess = false;
@@ -116,7 +116,8 @@ namespace Util
 			auto file = RE::TESDataHandler::GetSingleton()->LookupLoadedModByName(fileName);
 			if (!file) {
 				file = RE::TESDataHandler::GetSingleton()->LookupLoadedLightModByName(fileName);
-				id &= 0x00000FFF;
+				if (file)
+					id &= 0x00000FFF;
 			} else {
 				id &= 0x00FFFFFF;
 			}
@@ -145,7 +146,7 @@ namespace Util
 			}
 
 			auto baseFile = form->GetFile(0);
-			if(file != baseFile) {
+			if (file != baseFile) {
 				formID = RE::TESDataHandler::GetSingleton()->LookupFormID(id, baseFile->GetFilename());
 			}
 
