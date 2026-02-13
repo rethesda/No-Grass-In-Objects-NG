@@ -19,7 +19,7 @@ namespace GrassControl
 				grassParam = reinterpret_cast<RE::GrassParam*>(param);
 			}
 
-			if (GrassControlPlugin::Cache != nullptr && !GrassControlPlugin::Cache->CanPlaceGrass(land, x, y, z, grassParam)) {
+			if (GrassControlPlugin::RaycastSettingsCache != nullptr && !GrassControlPlugin::RaycastSettingsCache->CanPlaceGrass(land, x, y, z, grassParam)) {
 				return false;
 			}
 		}
@@ -29,7 +29,7 @@ namespace GrassControl
 	static float GrassCliffHelper(glm::vec3& normal, const float x, const float y, const float z, uintptr_t param)
 	{
 		if (Config::GrassCliffs) {
-			if (GrassControlPlugin::Cache != nullptr) {
+			if (GrassControlPlugin::RaycastSettingsCache != nullptr) {
 				RE::GrassParam* grassParam = nullptr;
 				if (REL::Module::IsSE()) {
 					auto paramPtr = reinterpret_cast<RE::GrassParam**>(param);
@@ -38,7 +38,7 @@ namespace GrassControl
 					grassParam = reinterpret_cast<RE::GrassParam*>(param);
 				}
 
-				auto ret = GrassControlPlugin::Cache->CreateGrassCliff(x, y, z, normal, grassParam);
+				auto ret = GrassControlPlugin::RaycastSettingsCache->CreateGrassCliff(x, y, z, normal, grassParam);
 				return ret;
 			}
 		}
@@ -112,7 +112,7 @@ namespace GrassControl
 				cachedGrassFormsList->printList("Grass-cliffs-forms");
 			}
 
-			Cache = std::make_unique<RaycastHelper>(static_cast<int>(std::stof(SKSE::PluginDeclaration::GetSingleton()->GetVersion().string())), static_cast<float>(Config::RayCastHeight), static_cast<float>(Config::RayCastDepth), Config::RayCastCollisionLayers, std::move(cachedList),  std::move(cachedTextureList),  std::move(cachedCliffsList),  std::move(cachedGrassFormsList));
+			RaycastSettingsCache = std::make_unique<RaycastHelper>(static_cast<int>(std::stof(SKSE::PluginDeclaration::GetSingleton()->GetVersion().string())), static_cast<float>(Config::RayCastHeight), static_cast<float>(Config::RayCastDepth), Config::RayCastCollisionLayers, std::move(cachedList), std::move(cachedTextureList), std::move(cachedCliffsList), std::move(cachedGrassFormsList));
 			logger::info("Created Cache for Raycasting Settings");
 		}
 
@@ -120,6 +120,35 @@ namespace GrassControl
 			if (!Config::UseGrassCache || !Config::OnlyLoadFromCache) {
 				warn_extend_without_cache();
 			}
+		}
+
+		if (!Config::AskedRaycastWarning && Config::RayCast && !GrassControl::Config::UseGrassCache) {
+			Config::AskedRaycastWarning = true;
+
+			CSimpleIniA ini;
+			ini.SetUnicode();
+
+			ini.LoadFile(Config::iniPath.data());
+			ini.SetBoolValue("Debug", "Asked-Enable-Raycast-Warning", Config::AskedRaycastWarning);
+			ini.SaveFile(Config::iniPath.data());
+
+			auto callback = [](std::uint8_t a_idx) {
+				if (a_idx == 1) {
+					Config::RayCastError = false;
+
+					CSimpleIniA ini;
+					ini.SetUnicode();
+
+					ini.LoadFile(Config::iniPath.data());
+					ini.SetBoolValue("RayCastConfig", "Ray-cast-error-message", Config::RayCastError);
+					ini.SaveFile(Config::iniPath.data());
+				}
+			};
+
+			auto settings = RE::GameSettingCollection::GetSingleton();
+
+			static REL::Relocation<void (*)(const char*, void (*a_callback)(std::uint8_t), std::uint32_t, std::uint32_t, std::uint32_t, const char*, const char*, const char*)> func{ RELOCATION_ID(51420, 52269) };
+			func("Do you want NGIO to display an error warning when it encounters multiple errors while raycasting within a cell? These errors are signs of possible crashes. When NGIO encounters an error, grass may remain within objects. If you change your mind, you just need to change Ray-cast-error-message in GrassControl.ini", callback, 0, 0x19, 10, settings->GetSetting("sYes")->GetString(), settings->GetSetting("sNo")->GetString(), nullptr);
 		}
 	}
 

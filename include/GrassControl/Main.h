@@ -21,7 +21,7 @@ namespace GrassControl
 		inline static auto normalBuffer = glm::vec3{ 0.0f };
 
 	public:
-		inline static std::unique_ptr<RaycastHelper> Cache;
+		inline static std::unique_ptr<RaycastHelper> RaycastSettingsCache;
 
 		static void init();
 

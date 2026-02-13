@@ -6,6 +6,11 @@
 #include <string>
 #include <vector>
 
+namespace GrassControl
+{
+	class RaycastHelper;
+}
+
 namespace Raycast
 {
 	struct hkpGenericShapeData
@@ -45,11 +50,14 @@ namespace Raycast
 		virtual void Reset();
 
 	private:
-		bool earlyOutHitFraction = false;
+		bool earlyOut = false;
 		char pad09[7];
 
 		std::vector<HitResult> hits{};
 		std::vector<const RE::NiAVObject*> objectFilter{};
+
+	public:
+		const GrassControl::RaycastHelper* settingsCache = nullptr;
 	};
 
 	class RayCollector
@@ -85,6 +93,9 @@ namespace Raycast
 
 		std::vector<HitResult> hits{};
 		std::vector<const RE::NiAVObject*> objectFilter{};
+
+	public:
+		const GrassControl::RaycastHelper* settingsCache = nullptr;
 	};
 
 #pragma warning(push)
@@ -120,9 +131,9 @@ namespace Raycast
 	//	RayResult:
 	//		A structure holding the results of the ray cast.
 	//		If the ray hit something, result.hit will be true.
-	RayResult hkpCastRay(const glm::vec4& start, const glm::vec4& end) noexcept;
+	RayResult hkpCastRay(const glm::vec4& start, const glm::vec4& end, const GrassControl::RaycastHelper* cache) noexcept;
 
-	RayResult hkpPhantomCast(glm::vec4& start, const glm::vec4& end, RE::TESObjectCELL* cell, RE::GrassParam* param);
+	RayResult hkpPhantomCast(glm::vec4& start, const glm::vec4& end, RE::TESObjectCELL* cell, RE::GrassParam* param, const GrassControl::RaycastHelper* cache) noexcept;
 
 	inline RE::hkpShapePhantom* phantom = nullptr;
 
@@ -147,7 +158,7 @@ namespace GrassControl
 	public:
 		virtual ~RaycastHelper() = default;
 
-		RaycastHelper(int version, float rayHeight, float rayDepth, const std::string& layers, std::unique_ptr<Util::CachedFormList> ignored, std::unique_ptr<Util::CachedFormList> textures, std::unique_ptr<Util::CachedFormList> cliffs, std::unique_ptr <Util::CachedFormList> grassTypes);
+		RaycastHelper(int version, float rayHeight, float rayDepth, const std::string& layers, std::unique_ptr<Util::CachedFormList> ignored, std::unique_ptr<Util::CachedFormList> textures, std::unique_ptr<Util::CachedFormList> cliffs, std::unique_ptr<Util::CachedFormList> grassTypes);
 
 		const int Version = 0;
 
@@ -168,14 +179,13 @@ namespace GrassControl
 		bool CanPlaceGrass(RE::TESObjectLAND* land, float x, float y, float z, RE::GrassParam* param) const;
 		float CreateGrassCliff(float x, float y, float z, glm::vec3& Normal, RE::GrassParam* param) const;
 
-	private:
 		/// @brief Iterate the Raycast Hit object and provide the first TESForm*
 		/// @param r The Rayresult to iterate
 		/// @return True if the predicate function returns true
 		static RE::TESForm* GetRaycastHitBaseForm(const Raycast::RayResult& r);
 		static RE::TESForm* GetRaycastHitBaseForm(const RE::hkpCdBody* body);
 
+	private:
 		bool IsCliffObject(const Raycast::RayResult& r) const;
 	};
-
 }

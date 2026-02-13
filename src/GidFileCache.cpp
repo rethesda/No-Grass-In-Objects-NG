@@ -200,7 +200,7 @@ namespace GrassControl
 				Label retnLabel;
 
 				sub(rsp, 0x20);
-				call(ptr[rip + funcLabel]);  
+				call(ptr[rip + funcLabel]);
 				add(rsp, 0x20);
 
 				jmp(ptr[rip + retnLabel]);
@@ -658,6 +658,7 @@ namespace GrassControl
 	{
 		if (Cell == nullptr)
 			return false;
+
 		const std::string fileKey = fmt::format(fmt::runtime("Data/Grass/{}x{:04}y{:04}.fail"), this->Parent->Name, this->X, this->Y);
 		auto fails = 1;
 		if (std::filesystem::exists(fileKey)) {
@@ -665,8 +666,15 @@ namespace GrassControl
 			if (failFile.good()) {
 				std::string failCount;
 				std::getline(failFile, failCount);
-				fails = stoi(failCount);
+
+				try {
+					fails = stoi(failCount);
+				} catch (std::exception e) {
+					logger::error(fmt::runtime("Error occured while trying to rread fail count for " + fileKey + ". Error was " + e.what()));
+				}
+
 				failFile.close();
+
 				if (fails >= Config::MaxFailures) {
 					logger::info(fmt::runtime("{}({},{}) failed {} times; skipping"), this->Parent->Name, this->X, this->Y, fails);
 					return false;
@@ -676,12 +684,14 @@ namespace GrassControl
 				}
 			}
 		}
+
 		// write failFile
 		std::ofstream failFile(fileKey, std::ios::trunc);
 		if (failFile.is_open()) {
 			failFile << fails << std::endl;
 			failFile.close();
 		}
+
 		double pct = 0.0;
 		if (Parent->TotalCellDo > 0) {
 			pct = std::max(0.0, std::min(static_cast<double>(Parent->DidCellDo) / static_cast<double>(Parent->TotalCellDo), 1.0)) * 100.0;
@@ -702,9 +712,11 @@ namespace GrassControl
 			REL::Relocation<void (*)(RE::PlayerCharacter*, uintptr_t, uintptr_t, RE::TESObjectCELL*, int)> func{ RELOCATION_ID(39657, 40744) };
 			func(RE::PlayerCharacter::GetSingleton(), reinterpret_cast<uintptr_t>(alloc), reinterpret_cast<uintptr_t>(alloc) + 0x10, Cell, 0);
 		}
+
 		if (std::filesystem::exists(fileKey)) {
 			std::filesystem::remove(fileKey);
 		}
+
 		return true;
 	}
 

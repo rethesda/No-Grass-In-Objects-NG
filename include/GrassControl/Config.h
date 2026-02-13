@@ -12,6 +12,7 @@ namespace GrassControl
 		static void WriteSettings();
 
 		static inline bool DebugLogEnable = false;
+		static inline bool AskedRaycastWarning = false;
 
 		static inline bool RayCast = true;
 		static inline double RayCastHeight = 150.0;

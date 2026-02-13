@@ -50,6 +50,7 @@ namespace GrassControl
 			if (ini.LoadFile(a_path.data()) >= 0) {
 				// Debug
 				ReadBoolSetting(ini, "Debug", "Debug-Log-Enable", DebugLogEnable);
+				ReadBoolSetting(ini, "Debug", "Asked-Enable-Raycast-Warning", AskedRaycastWarning);
 
 				//Raycast
 				ReadBoolSetting(ini, "RayCastConfig", "Ray-cast-enabled", RayCast);
@@ -114,6 +115,7 @@ namespace GrassControl
 
 		// Debug
 		ini.SetBoolValue("Debug", "Debug-Log-Enable", DebugLogEnable, ";Enable additional debug logging.");
+		ini.SetBoolValue("Debug", "Asked-Enable-Raycast-Warning", AskedRaycastWarning);
 
 		//Raycast
 		ini.SetBoolValue("RayCastConfig", "Ray-cast-enabled", RayCast, ";Use ray casting to detect where grass shouldn't grow (inside rocks or roads).");

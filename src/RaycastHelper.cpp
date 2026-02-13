@@ -8,12 +8,12 @@ Raycast::CdBodyPairCollector::CdBodyPairCollector() = default;
 
 void Raycast::HandleErrorMessage()
 {
-	if (RaycastErrorCount < 10) {
+	if (RaycastErrorCount < 20) {
 		logger::error("Exception occurred while attempting raycasting. Unless repeated within the same cell this unlikely to be a serious issue.");
 		RaycastErrorCount++;
 	} else if (!shownError) {
-		RE::DebugMessageBox("NGIO has encountered more than 10 errors while attempting raycasting in this cell. There is likely an issue with your game, that could result in a crash. It is recommend to save your game. If you do not experience crashes, this warning can be ignored and disabled in GrassControl.ini using the setting Ray-cast-error-message.");
-		logger::error("Raycast error count for this cell exceeded 10. There is likely an issue with your game, that could result in crashes. If you do not experience crashes, this warning can be ignored and disabled in GrassControl.ini using the setting Ray-cast-error-message.");
+		RE::DebugMessageBox("NGIO has encountered more than 20 errors while attempting raycasting in this cell. There is likely an issue with your game, that could result in a crash. The cause is most likely a bad mesh, most likely with broken collision. Try using Sniff to locate whate mesh(es) could be bad. It is also recommended to check the mods that edit this cell for errors in SSEdit. Saving your game is recommended. If you do not experience crashes, this warning can be ignored and disabled in GrassControl.ini using the setting Ray-cast-error-message.");
+		logger::error("Raycast error count for this cell exceeded 20. There is likely an issue with your game, that could result in crashes. The cause is most likely a bad mesh, most likely with broken collision. Try using Sniff to locate whate mesh(es) could be bad. It is also recommended to check the mods that edit this cell for errors in SSEdit. If you do not experience crashes, this warning can be ignored and disabled in GrassControl.ini using the setting Ray-cast-error-message.");
 		shownError = true;
 	}
 };
@@ -42,14 +42,16 @@ void Raycast::RayCollector::AddRayHit(const RE::hkpCdBody& body, const RE::hkpSh
 	const auto collisionObj = static_cast<const RE::hkpCollidable*>(hit.body);
 	const auto flags = collisionObj->broadPhaseHandle.collisionFilterInfo;
 
-	const uint64_t m = 1ULL << flags.filter;
-	constexpr uint64_t filter = 0x40122716;  //@TODO
-	if ((m & filter) != 0) {
-		if (!objectFilter.empty()) {
-			for (const auto filteredObj : objectFilter) {
-				if (hit.getAVObject() == filteredObj)
-					return;
+	const uint64_t mask = 1ULL << flags.filter;
+	if (this->settingsCache->RaycastMask & mask) {
+		auto rsTESForm = GrassControl::RaycastHelper::GetRaycastHitBaseForm(hit.body);
+		if (this->settingsCache->Ignore != nullptr && this->settingsCache->Ignore->Contains(rsTESForm)) {
+			if (GrassControl::Config::DebugLogEnable && rsTESForm) {
+				auto cell = RE::PlayerCharacter::GetSingleton()->GetParentCell();
+				logger::debug("Ignored 0x{:x} in {}", rsTESForm->formID, cell->GetFormEditorID() ? cell->GetFormEditorID() : cell->GetName());
 			}
+
+			return;
 		}
 
 		earlyOutHitFraction = hit.hitFraction;
@@ -80,16 +82,19 @@ void Raycast::CdBodyPairCollector::addCdBodyPair(const RE::hkpCdBody& bodyA, con
 	const auto collisionObj = static_cast<const RE::hkpCollidable*>(hit.body);
 	const auto flags = collisionObj->broadPhaseHandle.collisionFilterInfo;
 
-	const uint64_t m = 1ULL << flags.filter;
-	constexpr uint64_t filter = 0x40122716;  //@TODO
-	if ((m & filter) != 0) {
-		if (!objectFilter.empty()) {
-			for (const auto filteredObj : objectFilter) {
-				if (hit.getAVObject() == filteredObj)
-					return;
+	const uint64_t mask = 1ULL << flags.filter;
+	if (this->settingsCache->RaycastMask & mask) {
+		auto rsTESForm = GrassControl::RaycastHelper::GetRaycastHitBaseForm(hit.body);
+		if (this->settingsCache->Ignore != nullptr && this->settingsCache->Ignore->Contains(rsTESForm)) {
+			if (GrassControl::Config::DebugLogEnable && rsTESForm) {
+				auto cell = RE::PlayerCharacter::GetSingleton()->GetParentCell();
+				logger::debug("Ignored 0x{:x} in {}", rsTESForm->formID, cell->GetFormEditorID() ? cell->GetFormEditorID() : cell->GetName());
 			}
+
+			return;
 		}
 
+		this->earlyOut = true;
 		hits.push_back(hit);
 	}
 }
@@ -138,7 +143,7 @@ RE::NiAVObject* Raycast::getAVObject(const RE::hkpCdBody* body)
 	return body ? getAVObject(body) : nullptr;
 }
 
-Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& end) noexcept
+Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& end, const GrassControl::RaycastHelper* cache) noexcept
 {
 	constexpr auto hkpScale = 0.0142875f;
 	const glm::vec4 dif = end - start;
@@ -153,6 +158,7 @@ Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& 
 
 	auto collector = RayCollector();
 	collector.Reset();
+	collector.settingsCache = cache;
 
 	RE::bhkPickData pickData{};
 	pickData.rayInput = pickRayInput;
@@ -223,7 +229,7 @@ Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& 
 	return result;
 }
 
-Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& end, RE::TESObjectCELL* cell, RE::GrassParam* param)
+Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& end, RE::TESObjectCELL* cell, RE::GrassParam* param, const GrassControl::RaycastHelper* cache) noexcept
 {
 	if (!cell)
 		return {};
@@ -277,6 +283,9 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 	bool newShape = false;
 	newShape = std::abs(oldRadius - radius) > 1.0f;
 	if (newShape) {
+
+		bhkWorld->worldLock.LockForWrite();
+
 		if (GrassControl::Config::RayCastMode == 1 && currentShape) {
 			Memory::Internal::write<RE::hkVector4>(reinterpret_cast<uintptr_t>(currentShape) + 0x28, radius * hkpScale);  // Set Radius
 			Memory::Internal::write<RE::hkVector4>(reinterpret_cast<uintptr_t>(currentShape) + 0x40, vecTop);             // Set Top Vertex
@@ -284,6 +293,8 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 			auto halfExtents = RE::hkVector4(widthX, widthY, dif.z * hkpScale / 2.0f, 0.0f);
 			Memory::Internal::write<RE::hkVector4>(reinterpret_cast<uintptr_t>(currentShape) + 0x30, halfExtents);  // Set halfExtent
 		}
+
+		bhkWorld->worldLock.UnlockForWrite();
 
 		oldRadius = radius;
 	}
@@ -346,6 +357,7 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 	RayResult result;
 
 	auto collector = CdBodyPairCollector();
+	collector.settingsCache = cache;
 	collector.Reset();
 
 	if (!phantom->GetShape()) {
@@ -361,6 +373,8 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 		shownError = false;
 	}
 
+	bhkWorld->worldLock.LockForRead();
+
 	try {
 		using SetPosition_t = void (*)(RE::hkpShapePhantom*, RE::hkVector4);
 		REL::Relocation<SetPosition_t> SetPosition{ RELOCATION_ID(60791, 61653) };
@@ -374,6 +388,7 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 		HandleErrorMessage();
 	}
 
+	bhkWorld->worldLock.UnlockForRead();
 	bhkWorld->worldLock.UnlockForWrite();
 
 	result.cdBodyHitArray = collector.GetHits();
@@ -450,64 +465,32 @@ namespace GrassControl
 		Raycast::RayResult rs;
 
 		if (Config::RayCastMode >= 1) {
-			rs = Raycast::hkpPhantomCast(begin, end, cell, param);
+			rs = Raycast::hkpPhantomCast(begin, end, cell, param, this);
 
-			for (auto& [body] : rs.cdBodyHitArray) {
-				if (body == nullptr) {
-					continue;
-				}
+			if (Config::DebugLogEnable) {
+				for (auto& [body] : rs.cdBodyHitArray) {
+					auto rsTESForm = GrassControl::RaycastHelper::GetRaycastHitBaseForm(body);
 
-				const auto collisionObj = static_cast<const RE::hkpCollidable*>(body);
-				const auto flags = collisionObj->GetCollisionLayer();
-				unsigned long long mask = static_cast<unsigned long long>(1) << static_cast<int>(flags);
-				if (!(this->RaycastMask & mask)) {
-					continue;
-				}
-
-				auto rsTESForm = GetRaycastHitBaseForm(body);
-				if (this->Ignore != nullptr && this->Ignore->Contains(rsTESForm)) {
-					if (Config::DebugLogEnable && rsTESForm)
-						logger::debug("Ignored 0x{:x} in {}", rsTESForm->formID, cell->GetFormEditorID() ? cell->GetFormEditorID() : cell->GetName());
-					continue;
-				}
-
-				if (Config::DebugLogEnable) {
 					auto sTemplate = fmt::runtime("{} {}(0x{:x})");
 					auto cellName = format(sTemplate, "cell", cell->GetFormEditorID() ? cell->GetFormEditorID() : cell->GetName(), cell->formID);
 					auto hitObjectName = rsTESForm ? format(sTemplate, "with", rsTESForm->GetFormEditorID() ? rsTESForm->GetFormEditorID() : rsTESForm->GetName(), rsTESForm->formID) : "";
 					logger::debug("{}({},{},{}) detected hit {}", cellName, x, y, z, hitObjectName);
 				}
-
-				return false;
 			}
+
+			if (!rs.cdBodyHitArray.empty())
+				return false;
+
 		} else {
-			rs = Raycast::hkpCastRay(begin, end);
+			rs = Raycast::hkpCastRay(begin, end, this);
 
 			for (auto& [normal, hitFraction, body] : rs.hitArray) {
-				if (body == nullptr) {
-					continue;
-				}
+				auto rsTESForm = GrassControl::RaycastHelper::GetRaycastHitBaseForm(body);
 
-				const auto collisionObj = static_cast<const RE::hkpCollidable*>(body);
-				const auto flags = collisionObj->GetCollisionLayer();
-				unsigned long long mask = static_cast<unsigned long long>(1) << static_cast<int>(flags);
-				if (!(this->RaycastMask & mask)) {
-					continue;
-				}
-
-				auto rsTESForm = GetRaycastHitBaseForm(body);
-				if (this->Ignore != nullptr && this->Ignore->Contains(rsTESForm)) {
-					if (Config::DebugLogEnable && rsTESForm)
-						logger::debug("Ignored 0x{:x} in {}", rsTESForm->formID, cell->GetFormEditorID() ? cell->GetFormEditorID() : cell->GetName());
-					continue;
-				}
-
-				if (Config::DebugLogEnable) {
-					auto sTemplate = fmt::runtime("{} {}(0x{:x})");
-					auto cellName = format(sTemplate, "cell", cell->GetFormEditorID() ? cell->GetFormEditorID() : cell->GetName(), cell->formID);
-					auto hitObjectName = rsTESForm ? format(sTemplate, "with", rsTESForm->GetFormEditorID() ? rsTESForm->GetFormEditorID() : rsTESForm->GetName(), rsTESForm->formID) : "";
-					logger::debug("{}({},{},{}) detected hit {}", cellName, x, y, z, hitObjectName);
-				}
+				auto sTemplate = fmt::runtime("{} {}(0x{:x})");
+				auto cellName = format(sTemplate, "cell", cell->GetFormEditorID() ? cell->GetFormEditorID() : cell->GetName(), cell->formID);
+				auto hitObjectName = rsTESForm ? format(sTemplate, "with", rsTESForm->GetFormEditorID() ? rsTESForm->GetFormEditorID() : rsTESForm->GetName(), rsTESForm->formID) : "";
+				logger::debug("{}({},{},{}) detected hit {}", cellName, x, y, z, hitObjectName);
 
 				return false;
 			}
@@ -544,7 +527,7 @@ namespace GrassControl
 		auto begin = glm::vec4{ x, y, z, 0.0f };
 		auto end = glm::vec4{ x, y, z + 300.0f, 0.0f };
 
-		auto rs = Raycast::hkpCastRay(begin, end);
+		auto rs = Raycast::hkpCastRay(begin, end, this);
 		float retn = z;
 
 		if (!IsCliffObject(rs))
@@ -600,7 +583,7 @@ namespace GrassControl
 		}
 
 		for (int i = 0; i < ptsBegin.size(); i++) {
-			rs = Raycast::hkpCastRay(ptsBegin[i], ptsEnd[i]);
+			rs = Raycast::hkpCastRay(ptsBegin[i], ptsEnd[i], this);
 
 			if (!this->Cliffs->Contains(GetRaycastHitBaseForm(rs))) {
 				return z;
