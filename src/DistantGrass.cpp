@@ -89,7 +89,7 @@ namespace GrassControl
 	{
 		int count = 0;
 		{
-			std::scoped_lock lock(NRlocker);
+			std::scoped_lock lock(cellMapMutex);
 			for (const auto& val : map | std::views::values) {
 				if (val->State != _cell_data::_cell_states::None) {
 					count++;
@@ -116,20 +116,25 @@ namespace GrassControl
 	{
 		unsigned int wsId = ws != nullptr ? ws->formID : 0;
 
+		std::vector<std::pair<std::string, std::shared_ptr<_cell_data>>> queueDelete;
+
 		{
-			std::scoped_lock lock(locker);
-			for (const auto& val : this->map | std::views::values) {
-				if (val->State == _cell_data::_cell_states::None) {
+			std::scoped_lock lock(cellMapMutex);
+			for (const auto& [key, val] : this->map) {
+				if (!val || val->State == _cell_data::_cell_states::None) {
 					continue;
 				}
 
-				bool everythingIsFineHereNothingToDoFurther = addType >= 0 && val->WsId == wsId && std::abs(val->X - nowX) <= grassRadius && std::abs(val->Y - nowY) <= grassRadius;
-				if (everythingIsFineHereNothingToDoFurther) {
-					continue;
-				}
+				bool shouldKeep = addType >= 0 && val->WsId == wsId && std::abs(val->X - nowX) <= grassRadius && std::abs(val->Y - nowY) <= grassRadius;
 
-				_DoUnload(val);
+				if (!shouldKeep) {
+					queueDelete.push_back({ key, val });
+				}
 			}
+		}
+
+		for (auto& pair : queueDelete) {
+			_DoUnload(pair);
 		}
 	}
 
@@ -144,7 +149,7 @@ namespace GrassControl
 
 		std::shared_ptr<_cell_data> d;
 		{
-			std::scoped_lock lock(NRlocker);
+			std::scoped_lock lock(cellMapMutex);
 			if (!this->map.contains(key)) {
 				d = std::make_shared<_cell_data>();
 				this->map.insert_or_assign(key, d);
@@ -159,7 +164,7 @@ namespace GrassControl
 			return;
 
 		{
-			std::scoped_lock lock(NRlocker);
+			std::scoped_lock lock(cellMapMutex);
 			if (d->State != _cell_data::_cell_states::None) {
 				return;
 			}
@@ -193,38 +198,39 @@ namespace GrassControl
 		}
 	}
 
-	void DistantGrass::LoadOnlyCellInfoContainer2::_DoUnload(const std::shared_ptr<_cell_data>& d)
+	void DistantGrass::LoadOnlyCellInfoContainer2::_DoUnload(std::pair<std::string, std::shared_ptr<_cell_data>>& dataPair)
 	{
-		if (d == nullptr)
+		if (dataPair.second == nullptr)
 			return;
 
 		{
-			std::scoped_lock lock(NRlocker);
-			if (d->State == _cell_data::_cell_states::None || d->State == _cell_data::_cell_states::Abort) {
+			std::scoped_lock lock(cellMapMutex);
+
+			auto cellData = dataPair.second;
+
+			if (!cellData || cellData->State == _cell_data::_cell_states::None || cellData->State == _cell_data::_cell_states::Abort) {
 				return;
 			}
 
-			if (d->State == _cell_data::_cell_states::Loading) {
-				d->State = _cell_data::_cell_states::Abort;
+			if (cellData->State == _cell_data::_cell_states::Loading) {
+				cellData->State = _cell_data::_cell_states::Abort;
 				return;
 			}
-			REL::Relocation<void (*)(RE::BGSGrassManager*, RE::TESObjectCELL*)> func{ RELOCATION_ID(15207, 15375) };
 
-			func(RE::BGSGrassManager::GetSingleton(), d->DummyCell_Ptr);
-			REL::Relocation<void (*)(RE::TESObjectCELL*, uintptr_t)> func2{ RELOCATION_ID(11932, 12071) };
-			func2(d->DummyCell_Ptr, 0);
+			if (cellData->DummyCell_Ptr) {
+				REL::Relocation<void (*)(RE::BGSGrassManager*, RE::TESObjectCELL*)> func{ RELOCATION_ID(15207, 15375) };
+				func(RE::BGSGrassManager::GetSingleton(), cellData->DummyCell_Ptr);
 
-			delete d->DummyCell_Ptr->GetRuntimeData().cellData.exterior;
+				REL::Relocation<void (*)(RE::TESObjectCELL*, uintptr_t)> func2{ RELOCATION_ID(11932, 12071) };
+				func2(cellData->DummyCell_Ptr, 0);
 
-			d->DummyCell_Ptr = nullptr;
-			d->State = _cell_data::_cell_states::None;
-
-			for (auto it = map.begin(); it != map.end(); ++it) {
-				if (it->second == d) {
-					map.erase(it);
-					break;
-				}
+				delete cellData->DummyCell_Ptr->GetRuntimeData().cellData.exterior;
 			}
+
+			cellData->DummyCell_Ptr = nullptr;
+			cellData->State = _cell_data::_cell_states::None;
+
+			map.erase(dataPair.first);
 		}
 	}
 
@@ -234,19 +240,21 @@ namespace GrassControl
 			return;
 
 		std::string key = MakeKey(ws->editorID.c_str(), x, y);
-		std::shared_ptr<_cell_data> d;
+		std::shared_ptr<_cell_data> data;
 		{
-			std::scoped_lock lock(NRlocker);
+			std::scoped_lock lock(cellMapMutex);
 			if (!this->map.empty()) {
 				auto it = this->map.find(key);
-				d = it == this->map.end() ? nullptr : it->second;
+				data = it == this->map.end() ? nullptr : it->second;
 			}
 		}
 
-		if (d == nullptr)
+		if (data == nullptr)
 			return;
 
-		_DoUnload(d);
+		std::pair<std::string, std::shared_ptr<_cell_data>> pair = std::make_pair(key, data);
+
+		_DoUnload(pair);
 	}
 
 	void DistantGrass::LoadOnlyCellInfoContainer2::_DoLoad(const RE::TESWorldSpace* ws, const int x, const int y) const
@@ -257,7 +265,7 @@ namespace GrassControl
 		std::string key = MakeKey(ws->editorID.c_str(), x, y);
 		std::shared_ptr<_cell_data> d;
 		{
-			std::scoped_lock lock(NRlocker);
+			std::scoped_lock lock(cellMapMutex);
 			auto it = this->map.find(key);
 			d = it == this->map.end() ? nullptr : it->second;
 		}
@@ -266,7 +274,7 @@ namespace GrassControl
 			return;
 
 		{
-			std::scoped_lock lock(NRlocker);
+			std::scoped_lock lock(cellMapMutex);
 			if (d->State == _cell_data::_cell_states::Loaded) {
 				// This shouldn't happen
 			} else if (d->State == _cell_data::_cell_states::Loading) {
@@ -288,8 +296,10 @@ namespace GrassControl
 
 	void DistantGrass::LoadOnlyCellInfoContainer2::UnloadAll()
 	{
-		for (const auto& val : this->map | std::views::values) {
-			_DoUnload(val);
+		for (const auto& [key, val] : this->map) {
+			std::pair<std::string, std::shared_ptr<_cell_data>> pair = std::make_pair(key, val);
+
+			_DoUnload(pair);
 		}
 		this->map.clear();
 	}
@@ -404,73 +414,6 @@ namespace GrassControl
 
 		auto& trampoline = SKSE::GetTrampoline();
 		trampoline.write_branch<6>(addr, trampoline.allocate(patch));
-
-		addr = RELOCATION_ID(13190, 13335).address();
-		struct Patch2 : CodeGenerator
-		{
-			Patch2(std::uintptr_t a_func, uintptr_t a_target)
-			{
-				Label funcLabel;
-				Label retnLabel;
-
-				push(rcx);
-				mov(r9d, 1);
-				mov(r8d, 0);
-				mov(edx, 0);
-
-				sub(rsp, 0x20);
-				call(ptr[rip + funcLabel]);
-				add(rsp, 0x20);
-
-				pop(rcx);
-				jmp(ptr[rip + retnLabel]);
-
-				L(funcLabel);
-				dq(a_func);
-
-				L(retnLabel);
-				dq(a_target + 0x5);
-			}
-		};
-		Patch2 patch2(reinterpret_cast<uintptr_t>(UpdateGrassGridNow), addr);
-		patch2.ready();
-
-		trampoline.write_branch<5>(addr, trampoline.allocate(patch2));
-
-		Memory::Internal::write<uint8_t>(addr + 5, 0xC3, true);
-
-		addr = RELOCATION_ID(13191, 13336).address();
-		struct Patch3 : CodeGenerator
-		{
-			Patch3(std::uintptr_t a_func, uintptr_t a_target)
-			{
-				Label funcLabel;
-				Label retnLabel;
-
-				push(rcx);
-				mov(r9d, static_cast<uint32_t>(-1));
-				mov(r8d, 0);
-				mov(edx, 0);
-
-				sub(rsp, 0x20);
-				call(ptr[rip + funcLabel]);
-				add(rsp, 0x20);
-
-				pop(rcx);
-				jmp(ptr[rip + retnLabel]);
-
-				L(funcLabel);
-				dq(a_func);
-
-				L(retnLabel);
-				dq(a_target + 0x5);
-			}
-		};
-		Patch3 patch3(reinterpret_cast<uintptr_t>(UpdateGrassGridNow), addr);
-		patch3.ready();
-
-		trampoline.write_branch<5>(addr, trampoline.allocate(patch3));
-		Memory::Internal::write<uint8_t>(addr + 5, 0xC3, true);
 
 		// cell dtor
 		if (!load_only) {
@@ -588,7 +531,7 @@ namespace GrassControl
 			};
 			Patch6 patch6(addr);
 			patch6.ready();
-			
+
 			REL::safe_write(addr + 5, REL::NOP4, 4);
 			trampoline.write_branch<5>(addr, trampoline.allocate(patch6));
 		}
@@ -1284,7 +1227,7 @@ namespace GrassControl
 			return;
 
 		{
-			std::scoped_lock lock(locker);
+			std::scoped_lock lock(cellMapMutex);
 			auto c = Map->FindByCell(cell);
 			if (!c) {
 				logger::debug("AddedGrass(null): warning: c == null");
@@ -1351,7 +1294,7 @@ namespace GrassControl
 			return;
 		}
 		{
-			std::scoped_lock lock(locker);
+			std::scoped_lock lock(cellMapMutex);
 			auto c = Map->FindByCell(cell);
 			if (c) {
 				if (c->self_data >> 24 != 0) {
@@ -1562,7 +1505,7 @@ namespace GrassControl
 		auto invokeList = std::vector<RE::TESObjectCELL*>();
 		if (addType <= 0) {
 			{
-				std::scoped_lock lock(locker);
+				std::scoped_lock lock(cellMapMutex);
 				Map->unsafe_ForeachWithState([&](std::shared_ptr<cell_info> c) {
 					auto want = addType < 0 ? GrassStates::None : GetWantState(c, nowX, nowY, uGrids, grassRadius, false, "");
 					if (want == GrassStates::None) {
@@ -1594,7 +1537,7 @@ namespace GrassControl
 
 		if (addType >= 0) {
 			{
-				std::scoped_lock lock(locker);
+				std::scoped_lock lock(cellMapMutex);
 				int minX = nowX - bigSide;
 				int maxX = nowX + bigSide;
 				int minY = nowY - bigSide;
@@ -1685,7 +1628,8 @@ namespace GrassControl
 			// Add grass after.
 			for (short x = minX; x <= maxX; x++) {
 				for (short y = minY; y <= maxY; y++) {
-					LO2Map->QueueLoad(ws, x, y);
+					if (LO2Map)
+						LO2Map->QueueLoad(ws, x, y);
 				}
 			}
 		}

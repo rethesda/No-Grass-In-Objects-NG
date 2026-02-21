@@ -15,9 +15,7 @@ namespace GrassControl
 		Active
 	};
 
-	static std::mutex NRlocker;
-
-	static std::recursive_mutex locker;
+	static std::recursive_mutex cellMapMutex;
 
 	class DistantGrass final
 	{
@@ -178,7 +176,7 @@ namespace GrassControl
 			void QueueLoad(RE::TESWorldSpace* ws, int x, int y);
 
 		private:
-			void _DoUnload(const std::shared_ptr<_cell_data>& d);
+			void _DoUnload(std::pair<std::string, std::shared_ptr<_cell_data>>& dataPair);
 
 		public:
 			void Unload(const RE::TESWorldSpace* ws, int x, int y);
@@ -228,6 +226,24 @@ namespace GrassControl
 				static inline REL::Relocation<decltype(thunk)> func;
 			};
 
+			struct UpdateGrassGridAddRemove
+			{
+				static void thunk(RE::TES* a_TES)
+				{
+					UpdateGrassGridNow(a_TES, 0, 0, 1);
+				}
+				static inline REL::Relocation<decltype(thunk)> func;
+			};
+
+			struct UpdateGrassGridAddRemove2
+			{
+				static void thunk(RE::TES* a_TES)
+				{
+					UpdateGrassGridNow(a_TES, 0, 0, -1);
+				}
+				static inline REL::Relocation<decltype(thunk)> func;
+			};
+
 			static void Install()
 			{
 				if (Config::ExtendGrassDistance) {
@@ -237,6 +253,11 @@ namespace GrassControl
 						stl::write_thunk_call<CellSelection>(RELOCATION_ID(15206, 15374).address() + REL::Relocate(0x645C - 0x6200, 0x645C - 0x6200));
 						stl::write_thunk_call<CellSelection>(RELOCATION_ID(15204, 15372).address() + REL::Relocate(0x2F5, 0x2F5));
 					}
+
+					stl::write_thunk_jump<UpdateGrassGridAddRemove>(RELOCATION_ID(13190, 13335).address());
+					Memory::Internal::write<uint8_t>(RELOCATION_ID(13190, 13335).address() + 5, 0xC3, true);
+					stl::write_thunk_jump<UpdateGrassGridAddRemove2>(RELOCATION_ID(13191, 13336).address());
+					Memory::Internal::write<uint8_t>(RELOCATION_ID(13191, 13336).address() + 5, 0xC3, true);
 				}
 			}
 		};
