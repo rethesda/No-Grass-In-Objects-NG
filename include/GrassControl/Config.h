@@ -35,9 +35,9 @@ namespace GrassControl
 		static inline bool UseGrassCache = false;
 		static inline bool ExtendGrassDistance = false;
 		static inline bool ExtendGrassCount = true;
-		static inline int EnsureMaxGrassTypesPerTextureSetting = 7;
-		static inline double OverwriteGrassDistance = 6000.0;
-		static inline double OverwriteGrassFadeRange = 3000.0;
+		static inline int EnsureMaxGrassTypesPerTextureSetting = -1;
+		static inline double OverwriteGrassDistance = -1;
+		static inline double OverwriteGrassFadeRange = -1;
 		static inline int OverwriteMinGrassSize = -1;
 		static inline double GlobalGrassScale = 1.0;
 		static inline bool OnlyLoadFromCache = false;
