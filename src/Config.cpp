@@ -47,7 +47,9 @@ namespace GrassControl
 			ini.SetUnicode();
 			ini.SetMultiLine();
 
-			if (ini.LoadFile(a_path.data()) >= 0) {
+			auto iniLoadResult = ini.LoadFile(a_path.data());
+
+			if (iniLoadResult >= 0) {
 				// Debug
 				ReadBoolSetting(ini, "Debug", "Debug-Log-Enable", DebugLogEnable);
 				ReadBoolSetting(ini, "Debug", "Asked-Enable-Raycast-Warning", AskedRaycastWarning);
@@ -91,7 +93,16 @@ namespace GrassControl
 				ReadBoolSetting(ini, "GrassConfig", "Load-from-BSA", loadFromBSA);
 
 				return true;
+			} 
+			
+			if (iniLoadResult == -1 || iniLoadResult == -2) {
+				logger::error("...unknown error occured while loading .ini");
+			} else if (iniLoadResult == -3) {
+				if (errno) {
+					logger::error("...error loading .ini: {}", std::strerror(errno));
+				}
 			}
+
 			return false;
 		};
 
@@ -99,7 +110,7 @@ namespace GrassControl
 		if (readIni(iniPath)) {
 			logger::info("...success");
 		} else {
-			logger::info("...ini not found, creating a new one");
+			logger::info("Creating .ini instead");
 			WriteSettings();
 		}
 	}
