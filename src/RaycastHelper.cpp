@@ -6,23 +6,6 @@
 Raycast::RayCollector::RayCollector() = default;
 Raycast::CdBodyPairCollector::CdBodyPairCollector() = default;
 
-namespace RE
-{
-	float hkpWorldRayCaster::AddBroadPhaseHandle(const hkpBroadPhaseHandle* a_broadphaseHandle, std::int32_t a_castIndex)
-	{
-		using func_t = decltype(&hkpWorldRayCaster::AddBroadPhaseHandle);
-		static REL::Relocation<func_t> func{ RELOCATION_ID(63651, 64640) };
-		return func(this, a_broadphaseHandle, a_castIndex);
-	}
-
-	float hkpSimpleWorldRayCaster ::AddBroadPhaseHandle(const hkpBroadPhaseHandle* a_broadphaseHandle, std::int32_t a_castIndex)
-	{
-		using func_t = decltype(&hkpSimpleWorldRayCaster::AddBroadPhaseHandle);
-		static REL::Relocation<func_t> func{ RELOCATION_ID(63647, 64636) };
-		return func(this, a_broadphaseHandle, a_castIndex);
-	}
-}
-
 void Raycast::HandleErrorMessage()
 {
 	if (RaycastErrorCount < 20) {
@@ -33,7 +16,7 @@ void Raycast::HandleErrorMessage()
 		logger::error("Raycast error count for this cell exceeded 20. There is likely an issue with your game, that could result in crashes. The cause is most likely a bad mesh, most likely with broken collision. Try using Sniff to locate whate mesh(es) could be bad. It is also recommended to check the mods that edit this cell for errors in SSEdit. If you do not experience crashes, this warning can be ignored and disabled in GrassControl.ini using the setting Ray-cast-error-message.");
 		shownError = true;
 	}
-};
+}
 
 void Raycast::RayCollector::AddRayHit(const RE::hkpCdBody& body, const RE::hkpShapeRayCastCollectorOutput& hitInfo)
 {
@@ -71,6 +54,13 @@ void Raycast::RayCollector::AddRayHit(const RE::hkpCdBody& body, const RE::hkpSh
 			return;
 		}
 
+		if (this->settingsCache->Cliffs->Contains(rsTESForm)) {
+			if (ignoreCliff)
+				return;
+
+			hit.hitCliff = true;
+		}
+
 		earlyOutHitFraction = hit.hitFraction;
 		hits.push_back(hit);
 	}
@@ -81,10 +71,6 @@ void Raycast::CdBodyPairCollector::addCdBodyPair(const RE::hkpCdBody& bodyA, con
 	HitResult hit{};
 
 	const RE::hkpCdBody* obj = &bodyA;
-
-	//auto bhkPhantom = currentPhantom.load(std::memory_order_acquire);
-
-	//auto hkpPhantom = reinterpret_cast<RE::hkpPhantom*>(bhkPhantom->referencedObject.get());
 
 	if (obj == phantom->GetCollidable()) {
 		obj = &bodyB;
@@ -105,15 +91,22 @@ void Raycast::CdBodyPairCollector::addCdBodyPair(const RE::hkpCdBody& bodyA, con
 
 	const uint64_t mask = 1ULL << flags.filter;
 	if (this->settingsCache->RaycastMask & mask) {
-		hit.hitObject = hit.getAVObject() ? hit.getAVObject()->GetUserData() : nullptr;
+		auto hitForm = GrassControl::RaycastHelper::GetRaycastHitBaseForm(hit.body);
 
-		if (this->settingsCache->Ignore != nullptr && this->settingsCache->Ignore->Contains(hit.hitObject)) {
-			if (GrassControl::Config::DebugLogEnable && hit.hitObject) {
+		if (this->settingsCache->Ignore != nullptr && this->settingsCache->Ignore->Contains(hitForm)) {
+			if (GrassControl::Config::DebugLogEnable && hitForm) {
 				auto cell = RE::PlayerCharacter::GetSingleton()->GetParentCell();
-				logger::debug("Ignored 0x{:x} in {}", hit.hitObject->formID, cell->GetFormEditorID() ? cell->GetFormEditorID() : cell->GetName());
+				logger::debug("Ignored 0x{:x} in {}", hitForm->formID, cell->GetFormEditorID() ? cell->GetFormEditorID() : cell->GetName());
 			}
 
 			return;
+		}
+
+		if (this->settingsCache->Cliffs->Contains(hitForm)) {
+			if (ignoreCliff)
+				return;
+
+			hit.hitCliff = true;
 		}
 
 		this->earlyOut = true;
@@ -135,12 +128,14 @@ void Raycast::RayCollector::Reset()
 {
 	earlyOutHitFraction = 1.0f;
 	hits.clear();
+	ignoreCliff = false;
 }
 
 void Raycast::CdBodyPairCollector::Reset()
 {
 	earlyOut = false;
 	hits.clear();
+	ignoreCliff = false;
 }
 
 RE::NiAVObject* Raycast::RayCollector::HitResult::getAVObject()
@@ -164,7 +159,7 @@ RE::NiAVObject* Raycast::getAVObject(const RE::hkpCdBody* body)
 	return body ? getAVObject(body) : nullptr;
 }
 
-Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& end, const GrassControl::RaycastHelper* cache, bool forCliffs) noexcept
+Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& end, const GrassControl::RaycastHelper* cache, bool ignoreCliff) noexcept
 {
 	constexpr auto hkpScale = 0.0142875f;
 	const glm::vec4 dif = end - start;
@@ -178,6 +173,8 @@ Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& 
 	pickRayInput.to = RE::hkVector4(to.x, to.y, to.z, one);
 
 	cache->RayCollector->Reset();
+	if (ignoreCliff)
+		cache->RayCollector->ignoreCliff = true;
 
 	const auto ply = RE::PlayerCharacter::GetSingleton();
 	auto cell = ply->GetParentCell();
@@ -249,6 +246,10 @@ Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& 
 	}
 
 	for (auto& hit : cache->RayCollector->GetHits()) {
+		if (!result.hitCliff && hit.hitCliff) {
+			result.hitCliff = true;
+		}
+
 		const auto pos = dif * hit.hitFraction + start;
 		if (best.body == nullptr) {
 			best = hit;
@@ -281,7 +282,7 @@ Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& 
 	return result;
 }
 
-Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& end, RE::TESObjectCELL* cell, RE::GrassParam* param, const GrassControl::RaycastHelper* cache) noexcept
+Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& end, RE::TESObjectCELL* cell, RE::GrassParam* param, const GrassControl::RaycastHelper* cache, bool ignoreCliff) noexcept
 {
 	if (!cell)
 		return {};
@@ -371,47 +372,6 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 		createdShape = true;
 	}
 
-	/*
-	auto phantomInstance = currentPhantom.load(std::memory_order_acquire);
-
-	if (!phantomInstance || !phantomInstance->referencedObject) {
-		auto shapeParam = new bhkSimpleShapePhantomParam();
-		shapeParam->unk10 = 2;
-		shapeParam->unk18 = nullptr;
-		shapeParam->unk20 = 0;
-		shapeParam->unk24 = 0x80000000;
-		shapeParam->transform30 = transform;
-		shapeParam->HavokObject = currentShape->referencedObject;
-		shapeParam->collisionFlags = 0;
-
-		using createSimpleShapePhantom_t = RE::bhkShapePhantom* (*)(RE::bhkShapePhantom*, bhkSimpleShapePhantomParam*);
-		REL::Relocation<createSimpleShapePhantom_t> createSimpleShapePhantom{ RELOCATION_ID(37690, 78778) };
-		auto rawPhantom = RE::malloc<RE::bhkShapePhantom>(0x30);
-		if (!rawPhantom)
-			return {};
-
-		rawPhantom = createSimpleShapePhantom(rawPhantom, shapeParam);
-
-		delete shapeParam;
-
-		if (rawPhantom && rawPhantom->referencedObject) {
-			rawPhantom->IncRefCount();
-			rawPhantom->MoveToWorld(bhkWorld);
-		} else {
-			RE::free(rawPhantom);
-			return {};
-		}
-
-		currentPhantom.store(rawPhantom, std::memory_order_release);
-		phantomInstance = currentPhantom.load(std::memory_order_acquire);
-
-		if (!cache->phantomCreated) {
-			cache->phantomCreated = true;
-			cache->lastRaycastTime = GetTickCount64();
-		}
-	}
-	*/
-
 	if (!phantom) {
 		using createSimpleShapePhantom_t = RE::hkpShapePhantom* (*)(RE::hkpShapePhantom*, RE::hkpShape*, const RE::hkTransform&, uint32_t);
 		REL::Relocation<createSimpleShapePhantom_t> createSimpleShapePhantom{ RELOCATION_ID(60675, 61535) };
@@ -439,26 +399,15 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 		bhkWorld->worldLock.UnlockForWrite();
 	}
 
-	/*
-	if (phantomInstance->GetWorld1() != hkWorld) {
-		phantomInstance->RemoveFromCurrentWorld();
-		phantomInstance->MoveToWorld(bhkWorld);
-	}
-	*/
-
 	RayResult result;
 
 	cache->BodyPairCollector->Reset();
+	if (ignoreCliff)
+		cache->BodyPairCollector->ignoreCliff = true;
 
 	if (!phantom->GetShape()) {
 		return result;
 	}
-
-	/*
-	if (!phantomInstance->referencedObject) {
-		return result;
-	}
-	*/
 
 	if (!lastCell) {
 		lastCell = cell;
@@ -472,34 +421,18 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 
 	using SetPosition_t = void (*)(RE::hkpShapePhantom*, RE::hkVector4);
 	REL::Relocation<SetPosition_t> SetPosition{ RELOCATION_ID(60791, 61653) };
+
 	SetPosition(phantom, vecA);
 
 	bhkWorld->worldLock.UnlockForWrite();
 
 	try {
-		/*
-		using SetPositionSimpleShapePhantom_t = void (*)(RE::bhkShapePhantom*, RE::hkVector4);
-		REL::Relocation<SetPositionSimpleShapePhantom_t> SetPosition{ RELOCATION_ID(76895, 78771) };
-		SetPosition(phantomInstance, vecA);
-		*/
-
 		bhkWorld->worldLock.LockForRead();
 
 		using GetPenetrations_t = void (*)(RE::hkpShapePhantom*, RE::hkpCdBodyPairCollector*, RE::hkpCollisionInput*);
 		REL::Relocation<GetPenetrations_t> GetPenetrations{ RELOCATION_ID(60682, 61543) };
 
 		GetPenetrations(phantom, reinterpret_cast<RE::hkpCdBodyPairCollector*>(cache->BodyPairCollector.get()), nullptr);
-
-		/*
-		using GetPenetrations_t = void (*)(RE::hkpShapePhantom*, RE::hkpCdBodyPairCollector*, RE::hkpCollisionInput*);
-		REL::Relocation<GetPenetrations_t> GetPenetrations{ RELOCATION_ID(60682, 61543) };
-
-		if (phantomInstance->referencedObject && hkWorld->collisionInput) {
-			auto hkpPhantom = reinterpret_cast<RE::hkpShapePhantom*>(phantomInstance->referencedObject.get());
-
-			GetPenetrations(hkpPhantom, reinterpret_cast<RE::hkpCdBodyPairCollector*>(cache->BodyPairCollector.get()), nullptr);
-		}
-		*/
 
 	} catch (...) {
 		HandleErrorMessage();
@@ -510,6 +443,12 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 	result.cdBodyHitArray = cache->BodyPairCollector->GetHits();
 
 	cache->lastRaycastTime = GetTickCount64();
+
+	for (auto& hit : cache->BodyPairCollector->GetHits()) {
+		if (!result.hitCliff && hit.hitCliff) {
+			result.hitCliff = true;
+		}
+	}
 
 	return result;
 }
@@ -536,7 +475,7 @@ namespace GrassControl
 		this->BodyPairCollector->settingsCache = this;
 	}
 
-	bool RaycastHelper::CanPlaceGrass(RE::TESObjectLAND* land, const float x, const float y, const float z, RE::GrassParam* param) const
+	bool RaycastHelper::CanPlaceGrass(RE::TESObjectLAND* land, const float x, const float y, const float z, RE::GrassParam* param, bool& hitCliff, bool& falseCliff) const
 	{
 		static thread_local std::string cachedCellName;
 		static thread_local RE::FormID cachedCellID = 0;
@@ -554,15 +493,6 @@ namespace GrassControl
 
 		// Currently not dealing with this.
 		if (cell->IsInteriorCell() || !cell->IsAttached()) {
-			/*
-			auto phantomInstance = Raycast::currentPhantom.load(std::memory_order_acquire);
-
-			if (phantomInstance) {
-				phantomInstance->RemoveFromCurrentWorld();
-				phantomInstance = nullptr;
-			}
-			*/
-
 			return true;
 		}
 
@@ -605,25 +535,10 @@ namespace GrassControl
 		Raycast::RayResult rs;
 
 		if (Config::RayCastMode >= 1) {
-			rs = Raycast::hkpPhantomCast(begin, end, cell, param, this);
+			rs = Raycast::hkpPhantomCast(begin, end, cell, param, this, falseCliff);
 
 			if (Config::DebugLogEnable) {
-				for (auto& [body, hitObject] : rs.cdBodyHitArray) {
-					auto sTemplate = fmt::runtime("{} {}(0x{:x})");
-					auto cellName = format(sTemplate, "cell", cachedCellName, cell->formID);
-					auto hitObjectName = hitObject ? format(sTemplate, "with", hitObject->GetFormEditorID() ? hitObject->GetFormEditorID() : hitObject->GetName(), hitObject->formID) : "";
-					logger::debug("{}({},{},{}) detected hit {}", cellName, x, y, z, hitObjectName);
-				}
-			}
-
-			if (!rs.cdBodyHitArray.empty())
-				return false;
-
-		} else {
-			rs = Raycast::hkpCastRay(begin, end, this);
-
-			if (Config::DebugLogEnable) {
-				for (auto& [normal, hitFraction, body] : rs.hitArray) {
+				for (auto& [body, hitObject, hitCliff] : rs.cdBodyHitArray) {
 					auto rsTESForm = GetRaycastHitBaseForm(body);
 
 					auto sTemplate = fmt::runtime("{} {}(0x{:x})");
@@ -633,6 +548,37 @@ namespace GrassControl
 				}
 			}
 
+			if (!falseCliff) {
+				hitCliff = rs.hitCliff;
+			} else {
+				hitCliff = false;
+				falseCliff = false;
+			}
+
+			if (!rs.cdBodyHitArray.empty())
+				return false;
+
+		} else {
+			rs = Raycast::hkpCastRay(begin, end, this, falseCliff);
+
+			if (Config::DebugLogEnable) {
+				for (auto& [normal, hitFraction, body, hitCliff] : rs.hitArray) {
+					auto rsTESForm = GetRaycastHitBaseForm(body);
+
+					auto sTemplate = fmt::runtime("{} {}(0x{:x})");
+					auto cellName = format(sTemplate, "cell", cachedCellName, cell->formID);
+					auto hitObjectName = rsTESForm ? format(sTemplate, "with", rsTESForm->GetFormEditorID() ? rsTESForm->GetFormEditorID() : rsTESForm->GetName(), rsTESForm->formID) : "";
+					logger::debug("{}({},{},{}) detected hit {}", cellName, x, y, z, hitObjectName);
+				}
+			}
+
+			if (!falseCliff) {
+				hitCliff = rs.hitCliff;
+			} else {
+				hitCliff = false;
+				falseCliff = false;
+			}
+
 			if (!rs.hitArray.empty())
 				return false;
 		}
@@ -640,7 +586,7 @@ namespace GrassControl
 		return true;
 	}
 
-	float RaycastHelper::CreateGrassCliff(const float x, const float y, const float z, glm::vec3& Normal, RE::GrassParam* param) const
+	float RaycastHelper::CreateGrassCliff(const float x, const float y, const float z, glm::vec3& Normal, RE::GrassParam* param, bool& falseCliff) const
 	{
 		static thread_local std::string cachedCellName;
 		static thread_local RE::FormID cachedCellID = 0;
@@ -676,15 +622,17 @@ namespace GrassControl
 		auto begin = glm::vec4{ x, y, z, 0.0f };
 		auto end = glm::vec4{ x, y, z + 300.0f, 0.0f };
 
-		auto rs = Raycast::hkpCastRay(begin, end, this, true);
+		auto rs = Raycast::hkpCastRay(begin, end, this);
 		float retn = z;
 
-		if (!IsCliffObject(rs))
+		if (!IsCliffObject(rs)) {
+			falseCliff = true;
 			return z;
+		}
 
 		glm::vec4 bestPos = begin;
 
-		for (auto& [normal, hitFraction, body] : rs.hitArray) {
+		for (auto& [normal, hitFraction, body, hitCliff] : rs.hitArray) {
 			if (hitFraction >= 1.0f || body == nullptr) {
 				continue;
 			}
@@ -732,9 +680,9 @@ namespace GrassControl
 		}
 
 		for (int i = 0; i < ptsBegin.size(); i++) {
-			rs = Raycast::hkpCastRay(ptsBegin[i], ptsEnd[i], this, true);
+			rs = Raycast::hkpCastRay(ptsBegin[i], ptsEnd[i], this);
 
-			if (!this->Cliffs->Contains(GetRaycastHitBaseForm(rs))) {
+			if (!this->Cliffs->Contains(GetRaycastHitBaseForm(rs)) && std::abs(rs.hitPos.z - retn) > 20.0f) {
 				return z;
 			}
 		}
@@ -809,9 +757,14 @@ namespace GrassControl
 			return;
 		}
 
-		if (auto phantom = Raycast::currentPhantom.load(std::memory_order_acquire)) {
-			if (phantom->GetWorld1()) {
-				phantom->RemoveFromCurrentWorld();
+		if (Raycast::phantom) {
+			if (Raycast::phantom->world) {
+				auto ahkpWorld = reinterpret_cast<RE::ahkpWorld*>(Raycast::phantom->world);
+				auto bhkWorld = ahkpWorld->userData;
+
+				bhkWorld->worldLock.LockForWrite();
+				Raycast::phantom->world->RemovePhantom(Raycast::phantom);
+				bhkWorld->worldLock.UnlockForWrite();
 			}
 		}
 

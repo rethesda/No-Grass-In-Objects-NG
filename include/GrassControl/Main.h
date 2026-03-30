@@ -20,6 +20,10 @@ namespace GrassControl
 
 		inline static auto normalBuffer = glm::vec3{ 0.0f };
 
+		inline static bool hitCliff = false;
+
+		inline static bool falseCliff = false;
+
 	public:
 		inline static std::unique_ptr<RaycastHelper> RaycastSettingsCache;
 
