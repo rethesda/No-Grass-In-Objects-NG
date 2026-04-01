@@ -71,7 +71,7 @@ namespace GrassControl
 			GidFileGenerationTask::cur_instance = std::move(gf);
 		}
 
-		if (RaycastSettingsCache && (RaycastSettingsCache->shapePhantomCreated || RaycastSettingsCache->aabbPhantomCreated))
+		if (RaycastSettingsCache && (RaycastSettingsCache->shapePhantomActive || RaycastSettingsCache->aabbPhantomActive))
 			RaycastSettingsCache->CheckInactivePhantoms();
 	}
 
@@ -222,10 +222,7 @@ namespace GrassControl
 					Xmm a_z,
 					std::uintptr_t a_rbpOffset,
 					Reg64 a_grassParamReg,
-					std::uintptr_t a_targetJumpOffset,
-					std::uintptr_t a_floatArray,
-					std::uintptr_t a_hitCliff,
-					std::uintptr_t a_falseCliff)
+					std::uintptr_t a_targetJumpOffset)
 				{
 					Label canPlaceGrassFunc;
 					Label grassCliffHelper;
@@ -239,31 +236,35 @@ namespace GrassControl
 					Label notCliff;
 					Label recheckCliff;
 
+					sub(rsp, 0x70);
+					mov(byte[rsp + 0x48], 0);
+
 					L(recheckCliff);
-					movss(xmm1, ptr[rsp + a_rspPosOffset]);        // x
-					movss(xmm2, ptr[rsp + a_rspPosOffset + 0x4]);  // y
-					movss(xmm3, a_z);                              // z
+					movss(xmm1, ptr[rsp + 0x70 + a_rspPosOffset]);        // x
+					movss(xmm2, ptr[rsp + 0x70 + a_rspPosOffset + 0x4]);  // y
+					movss(xmm3, a_z);                                     // z
 					mov(rcx, a_rcxSource);
 
 					mov(rax, a_grassParamReg);
-					sub(rsp, 0x40);
 					mov(ptr[rsp + 0x20], rax);
-					mov(rax, a_hitCliff);
+					lea(rax, ptr[rsp + 0x40]);
 					mov(ptr[rsp + 0x28], rax);
-					mov(rax, a_falseCliff);
+					lea(rax, ptr[rsp + 0x48]);
 					mov(ptr[rsp + 0x30], rax);
 					call(ptr[rip + canPlaceGrassFunc]);
-					add(rsp, 0x40);
 
 					mov(cl, al);
-					mov(al, ptr[a_hitCliff]);
+					mov(al, ptr[rsp + 0x40]);
 					test(al, al);
 					jne(PossibleCliff);
 					test(cl, cl);
 					jne(canPlace);
+
+					add(rsp, 0x70);
 					jmp(ptr[rip + jump]);
 
 					L(canPlace);
+					add(rsp, 0x70);
 					movss(xmm6, ptr[rbp - a_rbpOffset]);
 					jmp(ptr[rip + retnLabel]);
 
@@ -271,18 +272,16 @@ namespace GrassControl
 					dq(a_target + a_targetJumpOffset);
 
 					L(PossibleCliff);
-					movss(xmm1, ptr[rsp + a_rspPosOffset]);        // x
-					movss(xmm2, ptr[rsp + a_rspPosOffset + 0x4]);  // y
-					movss(xmm3, a_z);                              // z
-					mov(rcx, a_floatArray);
+					movss(xmm1, ptr[rsp + 0x70 + a_rspPosOffset]);        // x
+					movss(xmm2, ptr[rsp + 0x70 + a_rspPosOffset + 0x4]);  // y
+					movss(xmm3, a_z);                                     // z
+					lea(rcx, ptr[rsp + 0x50]);
 
-					sub(rsp, 0x30);
 					mov(rax, a_grassParamReg);
 					mov(ptr[rsp + 0x20], rax);
-					mov(rax, a_falseCliff);
+					lea(rax, ptr[rsp + 0x48]);
 					mov(ptr[rsp + 0x28], rax);
 					call(ptr[rip + grassCliffHelper]);
-					add(rsp, 0x30);
 
 					ucomiss(a_z, xmm0);
 					jp(isCliff);
@@ -292,19 +291,19 @@ namespace GrassControl
 					movss(a_z, xmm0);
 
 					//terrain normal -> Cliff normal
-					mov(rcx, a_floatArray);
+					lea(rcx, ptr[rsp + 0x50]);
 					movss(xmm0, ptr[rcx + 0x8]);
-					movss(ptr[rsp + a_rspNormalOffset + 0x8], xmm0);  // z
+					movss(ptr[rsp + 0x70 + a_rspNormalOffset + 0x8], xmm0);  // z
 					movss(xmm0, ptr[rcx + 0x4]);
-					movss(ptr[rsp + a_rspNormalOffset + 0x4], xmm0);  // y
+					movss(ptr[rsp + 0x70 + a_rspNormalOffset + 0x4], xmm0);  // y
 					movss(xmm0, ptr[rcx]);
-					movss(ptr[rsp + a_rspNormalOffset], xmm0);  // x
+					movss(ptr[rsp + 0x70 + a_rspNormalOffset], xmm0);  // x
 
 					jmp(canPlace);
 
 					L(notCliff);
 					mov(al, 1);
-					mov(byte[a_falseCliff], al);
+					mov(byte[rsp + 0x48], al);
 					jmp(recheckCliff);
 
 					L(canPlaceGrassFunc);
@@ -324,10 +323,7 @@ namespace GrassControl
 				Xmm(REL::Relocate(7, 7, 14)),
 				REL::Relocate(0x48, 0x68, 0x38),
 				Reg64(REL::Relocate(Reg64::RBP, Reg64::RBX, Reg64::R13)),
-				REL::Relocate(0x5 + (0x661 - 0x23F), -0x156, 0x5 + 0x510),
-				reinterpret_cast<uintptr_t>(&normalBuffer),
-				reinterpret_cast<uintptr_t>(&hitCliff),
-				reinterpret_cast<uintptr_t>(&falseCliff));
+				REL::Relocate(0x5 + (0x661 - 0x23F), -0x156, 0x5 + 0x510));
 			patch.ready();
 
 			auto& trampoline = SKSE::GetTrampoline();

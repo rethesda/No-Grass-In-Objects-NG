@@ -178,8 +178,8 @@ namespace GrassControl
 		mutable volatile int64_t lastRaycastTime = 0;
 
 
-		mutable bool shapePhantomCreated = false;
-		mutable bool aabbPhantomCreated = false;
+		mutable bool shapePhantomActive = false;
+		mutable bool aabbPhantomActive = false;
 
 		bool CanPlaceGrass(RE::TESObjectLAND* land, float x, float y, float z, RE::GrassParam* param, bool& hitCliff, bool& falseCliff) const;
 		float CreateGrassCliff(float x, float y, float z, glm::vec3& Normal, RE::GrassParam* param, bool& falseCliff) const;

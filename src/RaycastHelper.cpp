@@ -248,31 +248,31 @@ Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& 
 
 		if (!returnPhantom)
 			return {};
+
+		cache->aabbPhantomActive = true;
 	}
 
+	physicsWorld->worldLock.LockForWrite();
+
+	using _setAabb = void (*)(RE::hkpAabbPhantom*, RE::hkAabb*);
+	REL::Relocation<_setAabb> SetAabb(RELOCATION_ID(60181, 60949));
+	SetAabb(AabbPhantom.get(), &aabb);
+
+	physicsWorld->worldLock.UnlockForWrite();
+
 	try {
-		physicsWorld->worldLock.LockForWrite();
-
-		using _setAabb = void (*)(RE::hkpAabbPhantom*, RE::hkAabb*);
-		REL::Relocation<_setAabb> SetAabb(RELOCATION_ID(60181, 60949));
-
-		SetAabb(AabbPhantom.get(), &aabb);
-
-		physicsWorld->worldLock.UnlockForWrite();
-
 		physicsWorld->worldLock.LockForRead();
 
 		using _RayCastAABB = void (*)(RE::hkpAabbPhantom*, RE::hkpWorldRayCastInput*, RE::hkpRayHitCollector*);
 		REL::Relocation<_RayCastAABB> raycastAABBPhantom(RELOCATION_ID(60173, 60941));
-
 		raycastAABBPhantom(AabbPhantom.get(), &pickRayInput, cache->GetRayCollector());
-
-		physicsWorld->worldLock.UnlockForRead();
 
 	} catch (...) {
 		HandleErrorMessage();
 		return result;
 	}
+
+	physicsWorld->worldLock.UnlockForRead();
 
 	for (auto& hit : cache->GetRayCollector()->GetHits()) {
 		if (!result.hitCliff && hit.hitCliff) {
@@ -421,6 +421,8 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 			if (!returnPhantom)
 				return {};
 		}
+
+		cache->shapePhantomActive = true;
 	}
 
 	if (phantom->world != hkWorld) {
@@ -434,6 +436,8 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 
 		if (!returnPhantom)
 			return {};
+
+		cache->shapePhantomActive = true;
 	}
 
 	RayResult result;
@@ -827,7 +831,7 @@ namespace GrassControl
 			}
 		}
 
-		shapePhantomCreated = false;
+		shapePhantomActive = false;
 
 		if (Raycast::AabbPhantom) {
 			uint64_t last = InterlockedCompareExchange64(&lastRaycastTime, 0, 0);
@@ -847,6 +851,6 @@ namespace GrassControl
 			}
 		}
 
-		aabbPhantomCreated = false;
+		aabbPhantomActive = false;
 	}
 }
