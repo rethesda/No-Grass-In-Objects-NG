@@ -106,7 +106,7 @@ namespace GrassControl
 				if (iniErrno != 0) {
 					logger::error("...file error occured while loading .ini: {}", std::strerror(iniErrno));
 				} else {
-					logger::error("...unknown file error occured while loading .ini");
+					logger::error("...unknown file error occurred while loading .ini");
 				}
 				break;
 			default:

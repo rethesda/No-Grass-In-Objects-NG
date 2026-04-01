@@ -127,9 +127,7 @@ namespace Raycast
 
 	RayResult hkpPhantomCast(glm::vec4& start, const glm::vec4& end, RE::TESObjectCELL* cell, RE::GrassParam* param, const GrassControl::RaycastHelper* cache, bool ignoreCliff = false) noexcept;
 
-	inline std::atomic<RE::bhkShapePhantom*> currentPhantom = nullptr;
-
-	inline RE::hkpShapePhantom* phantom = nullptr;
+	inline std::shared_ptr<RE::hkpShapePhantom> phantom = nullptr;
 
 	inline RE::bhkShape* currentShape = nullptr;
 
@@ -143,7 +141,7 @@ namespace Raycast
 
 	inline RE::TESObjectCELL* lastCell = nullptr;
 
-	inline RE::hkpAabbPhantom* AabbPhantom = nullptr;
+	inline std::shared_ptr<RE::hkpAabbPhantom> AabbPhantom = nullptr;
 }
 
 namespace GrassControl

@@ -214,14 +214,12 @@ Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& 
 
 		CreatehkpAABBPhantom(newPhantom, &aabb, 0);
 
-		RE::hkpAabbPhantom* expected = nullptr;
-		if (!std::atomic_compare_exchange_strong(reinterpret_cast<std::atomic<RE::hkpAabbPhantom*>*>(&AabbPhantom), &expected, newPhantom))
-			RE::free(newPhantom);
+		AabbPhantom = std::shared_ptr<RE::hkpAabbPhantom>(newPhantom);
 	}
 
 	if (!AabbPhantom->world) {
 		physicsWorld->worldLock.LockForWrite();
-		auto retPhantom = hkpWorld->AddPhantom(AabbPhantom);
+		auto retPhantom = hkpWorld->AddPhantom(AabbPhantom.get());
 		physicsWorld->worldLock.UnlockForWrite();
 
 		if (!retPhantom) {
@@ -235,7 +233,7 @@ Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& 
 		using _setAabb = void (*)(RE::hkpAabbPhantom*, RE::hkAabb*);
 		REL::Relocation<_setAabb> SetAabb(RELOCATION_ID(60181, 60949));
 
-		SetAabb(AabbPhantom, &aabb);
+		SetAabb(AabbPhantom.get(), &aabb);
 
 		physicsWorld->worldLock.UnlockForWrite();
 
@@ -244,7 +242,7 @@ Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& 
 		using _RayCastAABB = void (*)(RE::hkpAabbPhantom*, RE::hkpWorldRayCastInput*, RE::hkpRayHitCollector*);
 		REL::Relocation<_RayCastAABB> raycastAABBPhantom(RELOCATION_ID(60173, 60941));
 
-		raycastAABBPhantom(AabbPhantom, &pickRayInput, cache->GetRayCollector());
+		raycastAABBPhantom(AabbPhantom.get(), &pickRayInput, cache->GetRayCollector());
 
 		physicsWorld->worldLock.UnlockForRead();
 
@@ -390,13 +388,11 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 
 		newPhantom = createSimpleShapePhantom(newPhantom, reinterpret_cast<RE::hkpShape*>(currentShape->referencedObject.get()), transform, 0);
 
-		RE::hkpShapePhantom* expected = nullptr;
-		if (!std::atomic_compare_exchange_strong(reinterpret_cast<std::atomic<RE::hkpShapePhantom*>*>(&phantom), &expected, newPhantom))
-			RE::free(newPhantom);
+		phantom = std::shared_ptr<RE::hkpShapePhantom>(newPhantom);
 
-		if (newPhantom->GetShape()) {
+		if (phantom->GetShape()) {
 			bhkWorld->worldLock.LockForWrite();
-			auto returnPhantom = hkWorld->AddPhantom(newPhantom);
+			auto returnPhantom = hkWorld->AddPhantom(phantom.get());
 			bhkWorld->worldLock.UnlockForWrite();
 
 			if (!returnPhantom)
@@ -406,8 +402,8 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 
 	if (phantom->world != hkWorld) {
 		bhkWorld->worldLock.LockForWrite();
-		phantom->world->RemovePhantom(phantom);
-		auto returnPhantom = hkWorld->AddPhantom(phantom);
+		phantom->world->RemovePhantom(phantom.get());
+		auto returnPhantom = hkWorld->AddPhantom(phantom.get());
 		bhkWorld->worldLock.UnlockForWrite();
 
 		if (!returnPhantom)
@@ -437,7 +433,7 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 	using SetPosition_t = void (*)(RE::hkpShapePhantom*, RE::hkVector4);
 	REL::Relocation<SetPosition_t> SetPosition{ RELOCATION_ID(60791, 61653) };
 
-	SetPosition(phantom, vecA);
+	SetPosition(phantom.get(), vecA);
 
 	bhkWorld->worldLock.UnlockForWrite();
 
@@ -447,7 +443,7 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 		using GetPenetrations_t = void (*)(RE::hkpShapePhantom*, RE::hkpCdBodyPairCollector*, RE::hkpCollisionInput*);
 		REL::Relocation<GetPenetrations_t> GetPenetrations{ RELOCATION_ID(60682, 61543) };
 
-		GetPenetrations(phantom, reinterpret_cast<RE::hkpCdBodyPairCollector*>(cache->GetBodyPairCollector()), nullptr);
+		GetPenetrations(phantom.get(), reinterpret_cast<RE::hkpCdBodyPairCollector*>(cache->GetBodyPairCollector()), nullptr);
 
 	} catch (...) {
 		HandleErrorMessage();
@@ -799,7 +795,7 @@ namespace GrassControl
 				auto bhkWorld = ahkpWorld->userData;
 
 				bhkWorld->worldLock.LockForWrite();
-				Raycast::phantom->world->RemovePhantom(Raycast::phantom);
+				Raycast::phantom->world->RemovePhantom(Raycast::phantom.get());
 				bhkWorld->worldLock.UnlockForWrite();
 			}
 		}
