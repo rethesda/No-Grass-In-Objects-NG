@@ -483,6 +483,8 @@ namespace GrassControl
 		auto cell = land->GetSaveParentCell();
 
 		if (cell == nullptr) {
+			hitCliff = false;
+			falseCliff = false;
 			return true;
 		}
 
@@ -493,12 +495,17 @@ namespace GrassControl
 
 		// Currently not dealing with this.
 		if (cell->IsInteriorCell() || !cell->IsAttached()) {
+			hitCliff = false;
+			falseCliff = false;
 			return true;
 		}
 
 		if (param) {
-			if (this->Grasses != nullptr && this->Grasses->Contains(param->grassFormID))
+			if (this->Grasses != nullptr && this->Grasses->Contains(param->grassFormID)) {
+				hitCliff = false;
+				falseCliff = false;
 				return true;
+			}
 		}
 
 		if (this->Textures != nullptr) {
@@ -514,15 +521,19 @@ namespace GrassControl
 				}
 
 				for (auto& txt : txts) {
-					if (txt && this->Textures->Contains(cachedCellID)) {
+					if (txt && this->Textures->Contains(txt->GetFormID())) {
 						logger::debug("Detected hit with landscape texture in {} with 0x{:x}", cachedCellName, txt->GetFormID());
+						hitCliff = false;
+						falseCliff = false;
 						return false;
 					}
 				}
 			} else {
 				if (auto txt = tes->GetLandTexture(RE::NiPoint3{ x, y, z })) {
-					if (this->Textures->Contains(cachedCellID)) {
+					if (this->Textures->Contains(txt->GetFormID())) {
 						logger::debug("Detected hit with landscape texture in {} with 0x{:x}", cachedCellName, txt->GetFormID());
+						hitCliff = false;
+						falseCliff = false;
 						return false;
 					}
 				}
