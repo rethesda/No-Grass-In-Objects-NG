@@ -6,6 +6,26 @@
 Raycast::RayCollector::RayCollector() = default;
 Raycast::CdBodyPairCollector::CdBodyPairCollector() = default;
 
+static void DeleteShapePhantom(RE::hkpShapePhantom* phantom)
+{
+	RE::free(phantom);
+}
+
+static std::shared_ptr<RE::hkpShapePhantom> MakeShapePhantomPtr(RE::hkpShapePhantom* phantom)
+{
+	return std::shared_ptr<RE::hkpShapePhantom>(phantom, DeleteShapePhantom);
+}
+
+static void DeleteAabbPhantom(RE::hkpPhantom* phantom)
+{
+	RE::free(phantom);
+}
+
+static std::shared_ptr<RE::hkpAabbPhantom> MakeAabbPhantomPtr(RE::hkpAabbPhantom* phantom)
+{
+	return std::shared_ptr<RE::hkpAabbPhantom>(phantom, DeleteAabbPhantom);
+}
+
 void Raycast::HandleErrorMessage()
 {
 	if (RaycastErrorCount < 20) {
@@ -214,17 +234,20 @@ Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& 
 
 		CreatehkpAABBPhantom(newPhantom, &aabb, 0);
 
-		AabbPhantom = std::shared_ptr<RE::hkpAabbPhantom>(newPhantom);
+		AabbPhantom = MakeAabbPhantomPtr(newPhantom);
 	}
 
-	if (!AabbPhantom->world) {
+	if (AabbPhantom->world != hkpWorld) {
 		physicsWorld->worldLock.LockForWrite();
-		auto retPhantom = hkpWorld->AddPhantom(AabbPhantom.get());
+
+		if (AabbPhantom->world)
+			AabbPhantom->world->RemovePhantom(AabbPhantom.get());
+
+		auto returnPhantom = hkpWorld->AddPhantom(AabbPhantom.get());
 		physicsWorld->worldLock.UnlockForWrite();
 
-		if (!retPhantom) {
+		if (!returnPhantom)
 			return {};
-		}
 	}
 
 	try {
@@ -388,7 +411,7 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 
 		newPhantom = createSimpleShapePhantom(newPhantom, reinterpret_cast<RE::hkpShape*>(currentShape->referencedObject.get()), transform, 0);
 
-		phantom = std::shared_ptr<RE::hkpShapePhantom>(newPhantom);
+		phantom = MakeShapePhantomPtr(newPhantom);
 
 		if (phantom->GetShape()) {
 			bhkWorld->worldLock.LockForWrite();
@@ -402,7 +425,10 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 
 	if (phantom->world != hkWorld) {
 		bhkWorld->worldLock.LockForWrite();
-		phantom->world->RemovePhantom(phantom.get());
+
+		if (phantom->world)
+			phantom->world->RemovePhantom(phantom.get());
+
 		auto returnPhantom = hkWorld->AddPhantom(phantom.get());
 		bhkWorld->worldLock.UnlockForWrite();
 
@@ -632,7 +658,8 @@ namespace GrassControl
 
 		if (cell->formID != cachedCellID) {
 			cachedCellID = cell->formID;
-			cachedCellName = cell->GetFormEditorID() ? cell->GetFormEditorID() : cell->GetName();
+			auto name = cell->GetFormEditorID() ? cell->GetFormEditorID() : cell->GetName();
+			cachedCellName = name ? name : "Wilderness";
 		}
 
 		// Currently not dealing with this.
@@ -780,16 +807,16 @@ namespace GrassControl
 		return this->Cliffs->Contains(GetRaycastHitBaseForm(r));
 	}
 
-	void RaycastHelper::CheckInactivePhantom() const
+	void RaycastHelper::CheckInactivePhantoms() const
 	{
-		uint64_t last = InterlockedCompareExchange64(&lastRaycastTime, 0, 0);
-		uint64_t now = GetTickCount64();
-
-		if (now - last < 60000) {
-			return;
-		}
-
 		if (Raycast::phantom) {
+			uint64_t last = InterlockedCompareExchange64(&lastPhantomTestTime, 0, 0);
+			uint64_t now = GetTickCount64();
+
+			if (now - last < 60000) {
+				return;
+			}
+
 			if (Raycast::phantom->world) {
 				auto ahkpWorld = reinterpret_cast<RE::ahkpWorld*>(Raycast::phantom->world);
 				auto bhkWorld = ahkpWorld->userData;
@@ -800,6 +827,26 @@ namespace GrassControl
 			}
 		}
 
-		phantomCreated = false;
+		shapePhantomCreated = false;
+
+		if (Raycast::AabbPhantom) {
+			uint64_t last = InterlockedCompareExchange64(&lastRaycastTime, 0, 0);
+			uint64_t now = GetTickCount64();
+
+			if (now - last < 60000) {
+				return;
+			}
+
+			if (Raycast::AabbPhantom->world) {
+				auto ahkpWorld = reinterpret_cast<RE::ahkpWorld*>(Raycast::AabbPhantom->world);
+				auto bhkWorld = ahkpWorld->userData;
+
+				bhkWorld->worldLock.LockForWrite();
+				Raycast::AabbPhantom->world->RemovePhantom(Raycast::AabbPhantom.get());
+				bhkWorld->worldLock.UnlockForWrite();
+			}
+		}
+
+		aabbPhantomCreated = false;
 	}
 }

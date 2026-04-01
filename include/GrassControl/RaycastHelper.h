@@ -174,9 +174,12 @@ namespace GrassControl
 
 		Raycast::CdBodyPairCollector* GetBodyPairCollector() const;
 
+		mutable volatile int64_t lastPhantomTestTime = 0;
 		mutable volatile int64_t lastRaycastTime = 0;
 
-		mutable bool phantomCreated = false;
+
+		mutable bool shapePhantomCreated = false;
+		mutable bool aabbPhantomCreated = false;
 
 		bool CanPlaceGrass(RE::TESObjectLAND* land, float x, float y, float z, RE::GrassParam* param, bool& hitCliff, bool& falseCliff) const;
 		float CreateGrassCliff(float x, float y, float z, glm::vec3& Normal, RE::GrassParam* param, bool& falseCliff) const;
@@ -187,7 +190,7 @@ namespace GrassControl
 		static RE::TESForm* GetRaycastHitBaseForm(const Raycast::RayResult& r);
 		static RE::TESForm* GetRaycastHitBaseForm(const RE::hkpCdBody* body);
 
-		void CheckInactivePhantom() const;
+		void CheckInactivePhantoms() const;
 
 	private:
 		bool IsCliffObject(const Raycast::RayResult& r) const;
