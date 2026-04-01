@@ -8,7 +8,7 @@ namespace GrassControl
 		return static_cast<float>(a_input * Config::GlobalGrassScale);
 	}
 
-	static bool CanPlaceGrassWrapper(RE::TESObjectLAND* land, const float x, const float y, const float z, uintptr_t param)
+	static bool CanPlaceGrassWrapper(RE::TESObjectLAND* land, const float x, const float y, const float z, uintptr_t param, bool& hitCliff, bool& falseCliff)
 	{
 		if (Config::RayCast) {
 			RE::GrassParam* grassParam;
@@ -19,18 +19,19 @@ namespace GrassControl
 				grassParam = reinterpret_cast<RE::GrassParam*>(param);
 			}
 
-			if (GrassControlPlugin::RaycastSettingsCache != nullptr && !GrassControlPlugin::RaycastSettingsCache->CanPlaceGrass(land, x, y, z, grassParam)) {
+			if (GrassControlPlugin::RaycastSettingsCache != nullptr && !GrassControlPlugin::RaycastSettingsCache->CanPlaceGrass(land, x, y, z, grassParam, hitCliff, falseCliff)) {
 				return false;
 			}
 		}
+
 		return true;
 	}
 
-	static float GrassCliffHelper(glm::vec3& normal, const float x, const float y, const float z, uintptr_t param)
+	static float GrassCliffHelper(glm::vec3& normal, const float x, const float y, const float z, uintptr_t param, bool& falseCliff)
 	{
 		if (Config::GrassCliffs) {
 			if (GrassControlPlugin::RaycastSettingsCache != nullptr) {
-				RE::GrassParam* grassParam = nullptr;
+				RE::GrassParam* grassParam;
 				if (REL::Module::IsSE()) {
 					auto paramPtr = reinterpret_cast<RE::GrassParam**>(param);
 					grassParam = *paramPtr;
@@ -38,10 +39,11 @@ namespace GrassControl
 					grassParam = reinterpret_cast<RE::GrassParam*>(param);
 				}
 
-				auto ret = GrassControlPlugin::RaycastSettingsCache->CreateGrassCliff(x, y, z, normal, grassParam);
+				auto ret = GrassControlPlugin::RaycastSettingsCache->CreateGrassCliff(x, y, z, normal, grassParam, falseCliff);
 				return ret;
 			}
 		}
+
 		return z;
 	}
 
@@ -68,6 +70,9 @@ namespace GrassControl
 			auto gf = std::make_unique<GidFileGenerationTask>();
 			GidFileGenerationTask::cur_instance = std::move(gf);
 		}
+
+		if (RaycastSettingsCache && (RaycastSettingsCache->shapePhantomActive || RaycastSettingsCache->aabbPhantomActive))
+			RaycastSettingsCache->CheckInactivePhantoms();
 	}
 
 	void GrassControlPlugin::OnMainMenuOpen()
@@ -210,36 +215,73 @@ namespace GrassControl
 			auto addr = RELOCATION_ID(15212, 15381).address() + REL::Relocate((0x723A - 0x6CE0), 0x664, 0x56C);
 			struct Patch : CodeGenerator
 			{
-				Patch(std::uintptr_t a_func, std::uintptr_t b_func, std::uintptr_t a_target,
-					std::uintptr_t a_rspOffset,
-					std::uintptr_t b_rspOffset,
+				Patch(std::uintptr_t a_canPlaceGrassFunc, std::uintptr_t a_grassCliffHelperFunc, std::uintptr_t a_target,
+					std::uintptr_t a_rspPosOffset,
+					std::uintptr_t a_rspNormalOffset,
 					Reg a_rcxSource,
 					Xmm a_z,
 					std::uintptr_t a_rbpOffset,
 					Reg64 a_grassParamReg,
-					std::uintptr_t a_targetJumpOffset,
-					std::uintptr_t a_floatArray)
+					std::uintptr_t a_targetJumpOffset)
 				{
-					Label funcLabel;
-					Label funcLabel2;
+					Label canPlaceGrassFunc;
+					Label grassCliffHelper;
 					Label retnLabel;
+
+					Label jump;
+					Label canPlace;
+					Label PossibleCliff;
 
 					Label isCliff;
 					Label notCliff;
+					Label recheckCliff;
 
-					Label jump;
-					Label notIf;
+					sub(rsp, 0x70);
+					mov(byte[rsp + 0x48], 0);
 
-					movss(xmm1, ptr[rsp + a_rspOffset]);        // x
-					movss(xmm2, ptr[rsp + a_rspOffset + 0x4]);  // y
-					movss(xmm3, a_z);                           // z
-					mov(rcx, a_floatArray);
+					L(recheckCliff);
+					movss(xmm1, ptr[rsp + 0x70 + a_rspPosOffset]);        // x
+					movss(xmm2, ptr[rsp + 0x70 + a_rspPosOffset + 0x4]);  // y
+					movss(xmm3, a_z);                                     // z
+					mov(rcx, a_rcxSource);
 
 					mov(rax, a_grassParamReg);
-					sub(rsp, 0x30);
 					mov(ptr[rsp + 0x20], rax);
-					call(ptr[rip + funcLabel2]);
-					add(rsp, 0x30);
+					lea(rax, ptr[rsp + 0x40]);
+					mov(ptr[rsp + 0x28], rax);
+					lea(rax, ptr[rsp + 0x48]);
+					mov(ptr[rsp + 0x30], rax);
+					call(ptr[rip + canPlaceGrassFunc]);
+
+					mov(cl, al);
+					mov(al, ptr[rsp + 0x40]);
+					test(al, al);
+					jne(PossibleCliff);
+					test(cl, cl);
+					jne(canPlace);
+
+					add(rsp, 0x70);
+					jmp(ptr[rip + jump]);
+
+					L(canPlace);
+					add(rsp, 0x70);
+					movss(xmm6, ptr[rbp - a_rbpOffset]);
+					jmp(ptr[rip + retnLabel]);
+
+					L(jump);
+					dq(a_target + a_targetJumpOffset);
+
+					L(PossibleCliff);
+					movss(xmm1, ptr[rsp + 0x70 + a_rspPosOffset]);        // x
+					movss(xmm2, ptr[rsp + 0x70 + a_rspPosOffset + 0x4]);  // y
+					movss(xmm3, a_z);                                     // z
+					lea(rcx, ptr[rsp + 0x50]);
+
+					mov(rax, a_grassParamReg);
+					mov(ptr[rsp + 0x20], rax);
+					lea(rax, ptr[rsp + 0x48]);
+					mov(ptr[rsp + 0x28], rax);
+					call(ptr[rip + grassCliffHelper]);
 
 					ucomiss(a_z, xmm0);
 					jp(isCliff);
@@ -249,43 +291,26 @@ namespace GrassControl
 					movss(a_z, xmm0);
 
 					//terrain normal -> Cliff normal
-					mov(rcx, a_floatArray);
+					lea(rcx, ptr[rsp + 0x50]);
 					movss(xmm0, ptr[rcx + 0x8]);
-					movss(ptr[rsp + b_rspOffset + 0x8], xmm0);  // z
+					movss(ptr[rsp + 0x70 + a_rspNormalOffset + 0x8], xmm0);  // z
 					movss(xmm0, ptr[rcx + 0x4]);
-					movss(ptr[rsp + b_rspOffset + 0x4], xmm0);  // y
+					movss(ptr[rsp + 0x70 + a_rspNormalOffset + 0x4], xmm0);  // y
 					movss(xmm0, ptr[rcx]);
-					movss(ptr[rsp + b_rspOffset], xmm0);  // x
+					movss(ptr[rsp + 0x70 + a_rspNormalOffset], xmm0);  // x
 
-					jmp(notIf);
+					jmp(canPlace);
+
 					L(notCliff);
-					movss(xmm1, ptr[rsp + a_rspOffset]);        // x
-					movss(xmm2, ptr[rsp + a_rspOffset + 0x4]);  // y
-					movss(xmm3, a_z);                           // z
-					mov(rcx, a_rcxSource);
+					mov(al, 1);
+					mov(byte[rsp + 0x48], al);
+					jmp(recheckCliff);
 
-					mov(rax, a_grassParamReg);
-					sub(rsp, 0x30);
-					mov(ptr[rsp + 0x20], rax);
-					call(ptr[rip + funcLabel]);
-					add(rsp, 0x30);
+					L(canPlaceGrassFunc);
+					dq(a_canPlaceGrassFunc);
 
-					test(al, al);
-					jne(notIf);
-					jmp(ptr[rip + jump]);
-
-					L(notIf);
-					movss(xmm6, ptr[rbp - a_rbpOffset]);
-					jmp(ptr[rip + retnLabel]);
-
-					L(jump);
-					dq(a_target + a_targetJumpOffset);
-
-					L(funcLabel);
-					dq(a_func);
-
-					L(funcLabel2);
-					dq(b_func);
+					L(grassCliffHelper);
+					dq(a_grassCliffHelperFunc);
 
 					L(retnLabel);
 					dq(a_target + 0x5);
@@ -298,8 +323,7 @@ namespace GrassControl
 				Xmm(REL::Relocate(7, 7, 14)),
 				REL::Relocate(0x48, 0x68, 0x38),
 				Reg64(REL::Relocate(Reg64::RBP, Reg64::RBX, Reg64::R13)),
-				REL::Relocate(0x5 + (0x661 - 0x23F), -0x156, 0x5 + 0x510),
-				reinterpret_cast<uintptr_t>(&normalBuffer));
+				REL::Relocate(0x5 + (0x661 - 0x23F), -0x156, 0x5 + 0x510));
 			patch.ready();
 
 			auto& trampoline = SKSE::GetTrampoline();
@@ -370,7 +394,6 @@ namespace GrassControl
 		}
 
 		if (Config::EnsureMaxGrassTypesPerTextureSetting > 0) {
-
 			auto addr = RELOCATION_ID(18342, 18758).address() + REL::Relocate(0xD63 - 0xCF0, 0x68);
 
 			uint32_t max = std::max(Config::EnsureMaxGrassTypesPerTextureSetting, Memory::Internal::read<int>(addr_MaxGrassPerTexture + 8));
