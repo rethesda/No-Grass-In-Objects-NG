@@ -71,7 +71,7 @@ namespace GrassControl
 			GidFileGenerationTask::cur_instance = std::move(gf);
 		}
 
-		if (RaycastSettingsCache->phantomCreated)
+		if (RaycastSettingsCache && RaycastSettingsCache->phantomCreated)
 			RaycastSettingsCache->CheckInactivePhantom();
 	}
 

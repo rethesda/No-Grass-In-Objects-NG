@@ -172,9 +172,9 @@ namespace GrassControl
 
 		std::unique_ptr<Util::CachedFormList> const Grasses;
 
-		std::unique_ptr<Raycast::RayCollector> RayCollector;
+		Raycast::RayCollector* GetRayCollector() const;
 
-		std::unique_ptr<Raycast::CdBodyPairCollector> BodyPairCollector;
+		Raycast::CdBodyPairCollector* GetBodyPairCollector() const;
 
 		mutable volatile int64_t lastRaycastTime = 0;
 
