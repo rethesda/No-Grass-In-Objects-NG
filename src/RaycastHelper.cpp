@@ -369,7 +369,7 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 			Memory::Internal::write<float>(reinterpret_cast<uintptr_t>(currentShape->referencedObject.get()) + 0x28, radius * hkpScale);                                          // Set Radius
 			Memory::Internal::write<RE::hkVector4>(reinterpret_cast<uintptr_t>(currentShape->referencedObject.get()) + 0x40, RE::hkVector4(0.0f, 0.0f, dif.z * hkpScale, 1.0f));  // Set Top Vertex
 		} else if (currentShape) {
-			auto halfExtents = RE::hkVector4(widthX, widthY, dif.z * hkpScale / 2.0f, 0.0f);
+			auto halfExtents = RE::hkVector4(widthX * hkpScale, widthY * hkpScale, dif.z * hkpScale / 2.0f, 0.0f);
 			Memory::Internal::write<RE::hkVector4>(reinterpret_cast<uintptr_t>(currentShape->referencedObject.get()) + 0x30, halfExtents);  // Set halfExtent
 		}
 
@@ -390,12 +390,17 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 			currentShape = createCapsuleShape(currentShape, vecBottom, vecTop, radius);
 
 		} else {
-			float halfExtents[4] = { widthX, widthY, dif.z / 2.0f, 0.0f };
+			RE::NiPoint3 halfExtents = RE::NiPoint3(widthX, widthY, dif.z / 2.0f);
 
-			using createBoxShape_t = RE::bhkShape* (*)(RE::bhkShape*, float*);
-			REL::Relocation<createBoxShape_t> createBoxShape{ RELOCATION_ID(76945, 78820) };
+			using createBoxShape_t = RE::bhkShape* (*)(RE::bhkShape*, RE::NiPoint3*);
+			REL::Relocation<createBoxShape_t> createBoxShape{ RELOCATION_ID(38677, 78820) };
 
-			currentShape = createBoxShape(currentShape, halfExtents);
+			currentShape = createBoxShape(currentShape, &halfExtents);
+
+			if (REL::Module::IsAE()) {
+				auto halfExtents = RE::hkVector4(widthX * hkpScale, widthY * hkpScale, dif.z * hkpScale / 2.0f, 0.0f);
+				Memory::Internal::write<RE::hkVector4>(reinterpret_cast<uintptr_t>(currentShape->referencedObject.get()) + 0x30, halfExtents);  // Set halfExtent
+			}
 		}
 
 		createdShape = true;
