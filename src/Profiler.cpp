@@ -89,7 +89,7 @@ namespace GrassControl
 
 			message = Util::StringHelpers::Join(things, "; ");
 		}
-		RE::DebugNotification(message.c_str(), nullptr, true);
+		RE::SendHUDMessage::ShowHUDMessage(message.c_str(), nullptr, true);
 		//logger::debug(fmt::runtime(message));
 	}
 }

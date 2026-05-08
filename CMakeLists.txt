@@ -3,7 +3,7 @@ message("Using toolchain file ${CMAKE_TOOLCHAIN_FILE}.")
 
 project(
   NGIO-NG
-  VERSION 1.6.3
+  VERSION 1.6.4
   LANGUAGES CXX
 )
 
@@ -72,9 +72,11 @@ add_commonlibsse_plugin(
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 
 find_path(SIMPLEINI_INCLUDE_DIRS "SimpleIni.h")
+find_path(CLIBUTIL_INCLUDE_DIRS "CLibUtil/string.hpp")
 
 find_package(GLM REQUIRED)
 include_directories(${GLM_INCLUDE_DIRS})
+
 
 set(SOURCES ${headers} ${sources})
 
@@ -93,6 +95,7 @@ target_include_directories(
   $<INSTALL_INTERFACE:src>
   ${SIMPLEINI_INCLUDE_DIRS}
   ${CMAKE_CURRENT_SOURCE_DIR}/external/CasualLibrary1.0
+  ${CLIBUTIL_INCLUDE_DIRS}
   PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
