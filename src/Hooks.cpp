@@ -23,7 +23,6 @@ namespace GrassControl
 				return false;
 			}
 		}
-
 		return true;
 	}
 
@@ -77,7 +76,7 @@ namespace GrassControl
 
 	void GrassControlPlugin::OnMainMenuOpen()
 	{
-		auto fi = std::filesystem::path(Util::getProgressFilePath());
+		auto fi = std::filesystem::path(Util::GetProgressFilePath());
 		if (Config::UseGrassCache && exists(fi)) {
 			_did_mainMenu = 1;
 			Memory::Internal::write<uint8_t>(RELOCATION_ID(508798, 380767).address() + 8, 1);  // Skyrim.ini [General] bAlwaysActive=1
@@ -87,7 +86,7 @@ namespace GrassControl
 		if (Config::RayCast || Config::GrassCliffs) {
 			std::string formsStr = Config::RayCastIgnoreForms;
 			auto cachedList = Util::CachedFormList::TryParse(formsStr, "Ray-cast-ignore-forms", true, false);
-			if (cachedList != nullptr && cachedList->getAll().empty()) {
+			if (cachedList != nullptr && cachedList->GetAllForms().empty()) {
 				cachedList = nullptr;
 			} else if (cachedList != nullptr) {
 				cachedList->printList("Ray-cast-ignore-forms");
@@ -95,7 +94,7 @@ namespace GrassControl
 
 			std::string textureFormsStr = Config::RayCastTextureForms;
 			auto cachedTextureList = Util::CachedFormList::TryParse(textureFormsStr, "Ray-cast-texture-forms", true, false);
-			if (cachedTextureList != nullptr && cachedTextureList->getAll().empty()) {
+			if (cachedTextureList != nullptr && cachedTextureList->GetAllForms().empty()) {
 				cachedTextureList = nullptr;
 			} else if (cachedTextureList != nullptr) {
 				cachedTextureList->printList("Ray-cast-texture-forms");
@@ -103,7 +102,7 @@ namespace GrassControl
 
 			std::string cliffsFormsStr = Config::GrassCliffsForms;
 			auto cachedCliffsList = Util::CachedFormList::TryParse(cliffsFormsStr, "Grass-cliffs-forms", true, false);
-			if (cachedCliffsList != nullptr && cachedCliffsList->getAll().empty()) {
+			if (cachedCliffsList != nullptr && cachedCliffsList->GetAllForms().empty()) {
 				cachedCliffsList = nullptr;
 			} else if (cachedCliffsList != nullptr) {
 				cachedCliffsList->printList("Grass-cliffs-forms");
@@ -111,7 +110,7 @@ namespace GrassControl
 
 			std::string grassFormsStr = Config::RayCastIgnoreGrassForms;
 			auto cachedGrassFormsList = Util::CachedFormList::TryParse(grassFormsStr, "Ray-cast-ignore-grass-forms", true, false);
-			if (cachedGrassFormsList != nullptr && cachedGrassFormsList->getAll().empty()) {
+			if (cachedGrassFormsList != nullptr && cachedGrassFormsList->GetAllForms().empty()) {
 				cachedGrassFormsList = nullptr;
 			} else if (cachedGrassFormsList != nullptr) {
 				cachedGrassFormsList->printList("Grass-cliffs-forms");
@@ -119,6 +118,8 @@ namespace GrassControl
 
 			RaycastSettingsCache = std::make_unique<RaycastHelper>(static_cast<int>(std::stof(SKSE::PluginDeclaration::GetSingleton()->GetVersion().string())), static_cast<float>(Config::RayCastHeight), static_cast<float>(Config::RayCastDepth), Config::RayCastCollisionLayers, std::move(cachedList), std::move(cachedTextureList), std::move(cachedCliffsList), std::move(cachedGrassFormsList));
 			logger::info("Created Cache for Raycasting Settings");
+
+			ObjectHandler::LoadObjectConfigs(RaycastSettingsCache->cliffObjects, RaycastSettingsCache->partIgnoredObjects);
 		}
 
 		if (Config::ExtendGrassDistance) {
@@ -165,7 +166,7 @@ namespace GrassControl
 
 		Config::RayCastCollisionLayers = s.str();
 
-		auto fi = std::filesystem::path(Util::getProgressFilePath());
+		auto fi = std::filesystem::path(Util::GetProgressFilePath());
 		if (Config::UseGrassCache && exists(fi)) {
 			if (REL::Module::IsVR()) {
 				auto setting = RE::INISettingCollection::GetSingleton()->GetSetting("bLoadVRPlayroom:VR");

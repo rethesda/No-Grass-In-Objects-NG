@@ -64,7 +64,7 @@ void Raycast::RayCollector::AddRayHit(const RE::hkpCdBody& body, const RE::hkpSh
 
 	const uint64_t mask = 1ULL << flags.filter;
 	if (this->settingsCache->RaycastMask & mask) {
-		auto rsTESForm = GrassControl::RaycastHelper::GetRaycastHitBaseForm(hit.body);
+		auto rsTESForm = Util::GetBodyBaseForm(hit.body);
 		if (this->settingsCache->Ignore != nullptr && this->settingsCache->Ignore->Contains(rsTESForm)) {
 			if (GrassControl::Config::DebugLogEnable && rsTESForm) {
 				auto cell = RE::PlayerCharacter::GetSingleton()->GetParentCell();
@@ -74,7 +74,7 @@ void Raycast::RayCollector::AddRayHit(const RE::hkpCdBody& body, const RE::hkpSh
 			return;
 		}
 
-		if (this->settingsCache->Cliffs && this->settingsCache->Cliffs->Contains(rsTESForm)) {
+		if ((this->settingsCache->Cliffs && this->settingsCache->Cliffs->Contains(rsTESForm)) || this->settingsCache->cliffObjects.contains(rsTESForm->formID)) {
 			if (ignoreCliff)
 				return;
 
@@ -111,7 +111,7 @@ void Raycast::CdBodyPairCollector::addCdBodyPair(const RE::hkpCdBody& bodyA, con
 
 	const uint64_t mask = 1ULL << flags.filter;
 	if (this->settingsCache->RaycastMask & mask) {
-		auto hitForm = GrassControl::RaycastHelper::GetRaycastHitBaseForm(hit.body);
+		auto hitForm = Util::GetBodyBaseForm(hit.body);
 
 		if (this->settingsCache->Ignore != nullptr && this->settingsCache->Ignore->Contains(hitForm)) {
 			if (GrassControl::Config::DebugLogEnable && hitForm) {
@@ -122,7 +122,7 @@ void Raycast::CdBodyPairCollector::addCdBodyPair(const RE::hkpCdBody& bodyA, con
 			return;
 		}
 
-		if (this->settingsCache->Cliffs && this->settingsCache->Cliffs->Contains(hitForm)) {
+		if ((this->settingsCache->Cliffs && this->settingsCache->Cliffs->Contains(hitForm)) || this->settingsCache->cliffObjects.contains(hitForm->formID)) {
 			if (ignoreCliff)
 				return;
 
@@ -156,27 +156,6 @@ void Raycast::CdBodyPairCollector::Reset()
 	earlyOut = false;
 	hits.clear();
 	ignoreCliff = false;
-}
-
-RE::NiAVObject* Raycast::RayCollector::HitResult::getAVObject()
-{
-	typedef RE::NiAVObject* (*_GetUserData)(const RE::hkpCdBody*);
-	static auto getAVObject = REL::Relocation<_GetUserData>(RELOCATION_ID(76160, 77988));
-	return body ? getAVObject(body) : nullptr;
-}
-
-RE::NiAVObject* Raycast::CdBodyPairCollector::HitResult::getAVObject()
-{
-	typedef RE::NiAVObject* (*_GetUserData)(const RE::hkpCdBody*);
-	static auto getAVObject = REL::Relocation<_GetUserData>(RELOCATION_ID(76160, 77988));
-	return body ? getAVObject(body) : nullptr;
-}
-
-RE::NiAVObject* Raycast::getAVObject(const RE::hkpCdBody* body)
-{
-	typedef RE::NiAVObject* (*_GetUserData)(const RE::hkpCdBody*);
-	static auto getAVObject = REL::Relocation<_GetUserData>(RELOCATION_ID(76160, 77988));
-	return body ? getAVObject(body) : nullptr;
 }
 
 Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& end, const GrassControl::RaycastHelper* cache, bool ignoreCliff) noexcept
@@ -301,7 +280,7 @@ Raycast::RayResult Raycast::hkpCastRay(const glm::vec4& start, const glm::vec4& 
 
 	if (!best.body)
 		return result;
-	auto av = best.getAVObject();
+	auto av = Util::GetAVObject(best.body);
 	result.hit = av != nullptr;
 
 	if (result.hit) {
@@ -488,6 +467,14 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 
 	result.cdBodyHitArray = cache->GetBodyPairCollector()->GetHits();
 
+	if (!result.cdBodyHitArray.empty()) {
+		auto av = Util::GetAVObject(result.cdBodyHitArray[0].body);
+
+		if (av) {
+			result.hitObject = av->GetUserData();
+		}
+	}
+
 	InterlockedExchange64(&cache->lastRaycastTime, GetTickCount64());
 
 	for (auto& hit : cache->GetBodyPairCollector()->GetHits()) {
@@ -606,7 +593,7 @@ namespace GrassControl
 
 			if (Config::DebugLogEnable) {
 				for (auto& [body, hitObject, hitCliff] : rs.cdBodyHitArray) {
-					auto rsTESForm = GetRaycastHitBaseForm(body);
+					auto rsTESForm = Util::GetBodyBaseForm(body);
 
 					auto sTemplate = fmt::runtime("{} {}(0x{:x})");
 					auto cellName = format(sTemplate, "cell", cachedCellName, cell->formID);
@@ -622,6 +609,24 @@ namespace GrassControl
 				falseCliff = false;
 			}
 
+			if (!this->partIgnoredObjects.empty() && Util::GetRefrBaseForm(rs.hitObject) && this->partIgnoredObjects.contains(Util::GetRefrBaseForm(rs.hitObject)->formID)) {
+				auto& objInfo = this->partIgnoredObjects.at(Util::GetRefrBaseForm(rs.hitObject)->formID);
+
+				auto pos = RE::NiPoint3{ x, y, z };
+				auto closestObj = Util::FindClosestObj(rs.hitObject->Get3D(), pos);
+
+				auto baseObj = rs.hitObject->Get3D();
+				std::string baseObjName = baseObj->name.c_str();
+
+				for (const auto& ignored : objInfo.ignoredShapes) {
+					std::string compareName = baseObjName + ":" + ignored;
+
+					if (closestObj && (closestObj->name == ignored.c_str() || closestObj->name == compareName.c_str())) {
+						return true;
+					}
+				}
+			}
+
 			if (!rs.cdBodyHitArray.empty())
 				return false;
 
@@ -630,12 +635,30 @@ namespace GrassControl
 
 			if (Config::DebugLogEnable) {
 				for (auto& [normal, hitFraction, body, hitCliff] : rs.hitArray) {
-					auto rsTESForm = GetRaycastHitBaseForm(body);
+					auto rsTESForm = Util::GetBodyBaseForm(body);
 
 					auto sTemplate = fmt::runtime("{} {}(0x{:x})");
 					auto cellName = format(sTemplate, "cell", cachedCellName, cell->formID);
 					auto hitObjectName = rsTESForm ? format(sTemplate, "with", rsTESForm->GetFormEditorID() ? rsTESForm->GetFormEditorID() : rsTESForm->GetName(), rsTESForm->formID) : "";
 					logger::debug("{}({},{},{}) detected hit {}", cellName, x, y, z, hitObjectName);
+				}
+			}
+
+			if (!this->partIgnoredObjects.empty() && Util::GetRefrBaseForm(rs.hitObject) && this->partIgnoredObjects.contains(Util::GetRefrBaseForm(rs.hitObject)->formID)) {
+				auto& objInfo = this->partIgnoredObjects.at(Util::GetRefrBaseForm(rs.hitObject)->formID);
+
+				auto pos = RE::NiPoint3{ rs.hitPos.x, rs.hitPos.y, rs.hitPos.z };
+				auto closestObj = Util::FindClosestObj(rs.hitObject->Get3D(), pos);
+
+				auto baseObj = rs.hitObject->Get3D();
+				std::string baseObjName = baseObj->name.c_str();
+
+				for (const auto& ignored : objInfo.ignoredShapes) {
+					std::string compareName = baseObjName + ":" + ignored;
+
+					if (closestObj && (closestObj->name == ignored.c_str() || closestObj->name == compareName.c_str())) {
+						return true;
+					}
 				}
 			}
 
@@ -688,7 +711,7 @@ namespace GrassControl
 		}
 
 		auto begin = glm::vec4{ x, y, z, 0.0f };
-		auto end = glm::vec4{ x, y, z + 300.0f, 0.0f };
+		auto end = glm::vec4{ x, y, z + 600.0f, 0.0f };
 
 		auto rs = Raycast::hkpCastRay(begin, end, this);
 		float retn = z;
@@ -707,11 +730,11 @@ namespace GrassControl
 
 			const auto pos = (end - begin) * hitFraction + begin;
 
-			if (this->Cliffs == nullptr) {
+			if (this->Cliffs == nullptr && this->cliffObjects.empty()) {
 				return z;
 			}
 
-			if (this->Cliffs->Contains(GetRaycastHitBaseForm(body)) && pos.z > bestPos.z) {
+			if ((this->Cliffs && this->Cliffs->Contains(Util::GetBodyBaseForm(body)) || this->cliffObjects.contains(Util::GetBodyBaseForm(body)->formID)) && pos.z > bestPos.z) {
 				normal *= -1;
 
 				if (grassForm) {
@@ -726,6 +749,40 @@ namespace GrassControl
 			}
 		}
 
+		auto hitFormID = Util::GetRefrBaseForm(rs.hitObject)->formID;
+		float maxHeightDif = 30.0f;
+
+		if (this->cliffObjects.find(hitFormID) != this->cliffObjects.end()) {
+			auto cliffObjInfo = this->cliffObjects.at(hitFormID);
+			if (!cliffObjInfo.allowedShapes.empty() || !cliffObjInfo.blockedShapes.empty()) {
+				auto pos = RE::NiPoint3{ bestPos.x, bestPos.y, bestPos.z };
+				auto closestObj = Util::FindClosestObj(rs.hitObject->Get3D(), pos);
+
+				auto baseObj = rs.hitObject->Get3D();
+				std::string baseObjName = baseObj->name.c_str();
+
+				for (const auto& allowed : cliffObjInfo.allowedShapes) {
+					std::string compareName = baseObjName + ":" + allowed;
+
+					if (closestObj && (closestObj->name != allowed.c_str() && closestObj->name != compareName.c_str())) {
+						return z;
+					}
+				}
+
+				for (const auto& blocked : cliffObjInfo.blockedShapes) {
+					std::string compareName = baseObjName + ":" + blocked;
+
+					if (closestObj && (closestObj->name == blocked.c_str()) || closestObj->name == compareName.c_str()) {
+						return z;
+					}
+				}
+			}
+
+			if (cliffObjInfo.isSteep) {
+				maxHeightDif = 80.0f;
+			}
+		}
+
 		if (param)
 			param->fitsToSlope = true;
 
@@ -737,20 +794,22 @@ namespace GrassControl
 				auto widthX = std::abs(static_cast<float>(grassForm->boundData.boundMax.x - grassForm->boundData.boundMin.x) / 2);
 				auto widthY = std::abs(static_cast<float>(grassForm->boundData.boundMax.y - grassForm->boundData.boundMin.y) / 2);
 				auto width = std::max(widthX, widthY) + 40.0f;
-				ptsBegin = { glm::vec4{ x + width, y, retn - 30.0f, 0.0f }, glm::vec4{ x - width, y, retn - 30.0f, 0.0f }, glm::vec4{ x, y + width, retn - 30.0f, 0.0f }, glm::vec4{ x, y - width, retn - 30.0f, 0.0f } };
-				ptsEnd = { glm::vec4{ x + width, y, retn + 30.0f, 0.0f }, glm::vec4{ x - width, y, retn + 30.0f, 0.0f }, glm::vec4{ x, y + width, retn + 30.0f, 0.0f }, glm::vec4{ x, y - width, retn + 30.0f, 0.0f } };
+
+				ptsBegin = { glm::vec4{ x + width, y, retn - maxHeightDif, 0.0f }, glm::vec4{ x - width, y, retn - maxHeightDif, 0.0f }, glm::vec4{ x, y + width, retn - maxHeightDif, 0.0f }, glm::vec4{ x, y - width, retn - maxHeightDif, 0.0f } };
+				ptsEnd = { glm::vec4{ x + width, y, retn + maxHeightDif, 0.0f }, glm::vec4{ x - width, y, retn + maxHeightDif, 0.0f }, glm::vec4{ x, y + width, retn + maxHeightDif, 0.0f }, glm::vec4{ x, y - width, retn + maxHeightDif, 0.0f } };
 			}
 		}
 
 		if (ptsBegin.empty() && ptsEnd.empty()) {
-			ptsBegin = { glm::vec4{ x + 80.0f, y, retn - 30.0f, 0.0f }, glm::vec4{ x - 80.0f, y, retn - 30.0f, 0.0f }, glm::vec4{ x, y + 80.0f, retn - 30.0f, 0.0f }, glm::vec4{ x, y - 80.0f, retn - 30.0f, 0.0f } };
-			ptsEnd = { glm::vec4{ x + 80.0f, y, retn + 30.0f, 0.0f }, glm::vec4{ x - 80.0f, y, retn + 30.0f, 0.0f }, glm::vec4{ x, y + 80.0f, retn + 30.0f, 0.0f }, glm::vec4{ x, y - 80.0f, retn + 30.0f, 0.0f } };
+			ptsBegin = { glm::vec4{ x + 80.0f, y, retn - maxHeightDif, 0.0f }, glm::vec4{ x - 80.0f, y, retn - maxHeightDif, 0.0f }, glm::vec4{ x, y + 80.0f, retn - maxHeightDif, 0.0f }, glm::vec4{ x, y - 80.0f, retn - maxHeightDif, 0.0f } };
+			ptsEnd = { glm::vec4{ x + 80.0f, y, retn + maxHeightDif, 0.0f }, glm::vec4{ x - 80.0f, y, retn + maxHeightDif, 0.0f }, glm::vec4{ x, y + 80.0f, retn + maxHeightDif, 0.0f }, glm::vec4{ x, y - 80.0f, retn + maxHeightDif, 0.0f } };
 		}
 
 		for (int i = 0; i < ptsBegin.size(); i++) {
 			rs = Raycast::hkpCastRay(ptsBegin[i], ptsEnd[i], this);
 
-			if (!this->Cliffs->Contains(GetRaycastHitBaseForm(rs)) && std::abs(rs.hitPos.z - retn) > 20.0f) {
+			auto baseform = Util::GetRefrBaseForm(rs.hitObject);
+			if (!baseform || (!this->Cliffs->Contains(baseform) && !this->cliffObjects.contains(baseform->formID) && std::abs(rs.hitPos.z - retn) > 20.0f)) {
 				return z;
 			}
 		}
@@ -758,7 +817,7 @@ namespace GrassControl
 		if (Config::DebugLogEnable && retn != z) {
 			auto sTemplate = fmt::runtime("{} {}(0x{:x})");
 			auto cellName = fmt::format(sTemplate, "cell", cachedCellName, cell->formID);
-			auto rsTESForm = GetRaycastHitBaseForm(rs);
+			auto rsTESForm = Util::GetRefrBaseForm(rs.hitObject);
 			auto hitObjectName = rsTESForm ? fmt::format(sTemplate, "onto", rsTESForm->GetFormEditorID() ? rsTESForm->GetFormEditorID() : rsTESForm->GetName(), rsTESForm->formID) : "";
 			logger::debug("{}({},{},{}) moved grass patch {}. New height is {} and new normal (up) direction is ({},{},{})", cellName, x, y, z, hitObjectName, retn, Normal.x, Normal.y, Normal.z);
 		}
@@ -766,54 +825,12 @@ namespace GrassControl
 		return retn;
 	}
 
-	RE::TESForm* RaycastHelper::GetRaycastHitBaseForm(const Raycast::RayResult& r)
-	{
-		RE::TESForm* result = nullptr;
-		try {
-			auto ref = r.hitObject;
-			if (ref != nullptr) {
-				auto bound = ref->GetBaseObject();
-				if (bound != nullptr) {
-					auto baseform = bound->As<RE::TESForm>();
-					if (baseform != nullptr) {
-						result = baseform;
-						return result;
-					}
-				}
-			}
-		} catch (...) {
-		}
-		return result;
-	}
-
-	RE::TESForm* RaycastHelper::GetRaycastHitBaseForm(const RE::hkpCdBody* body)
-	{
-		RE::TESForm* result = nullptr;
-		try {
-			RE::TESObjectREFR* ref = nullptr;
-
-			auto av = Raycast::getAVObject(body);
-			if (av) {
-				ref = av->GetUserData();
-			}
-			if (ref != nullptr) {
-				auto bound = ref->GetBaseObject();
-				if (bound != nullptr) {
-					auto baseform = bound->As<RE::TESForm>();
-					if (baseform != nullptr) {
-						result = baseform;
-						return result;
-					}
-				}
-			}
-		} catch (...) {
-		}
-		return result;
-	}
-
 	bool RaycastHelper::IsCliffObject(const Raycast::RayResult& r) const
 	{
-		return this->Cliffs->Contains(GetRaycastHitBaseForm(r));
+		if (!r.hitObject)
+			return false;
+
+		return this->Cliffs->Contains(Util::GetRefrBaseForm(r.hitObject)) || this->cliffObjects.contains(Util::GetRefrBaseForm(r.hitObject)->formID);
 	}
 
 	void RaycastHelper::CheckInactivePhantoms() const
