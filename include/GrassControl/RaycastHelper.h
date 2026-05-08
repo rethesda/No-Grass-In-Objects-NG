@@ -1,23 +1,11 @@
 #pragma once
 
 #include <GrassControl/Config.h>
+#include <GrassControl/ObjectHandler.h>
 #include <GrassControl/Util.h>
 #include <cstdint>
 #include <string>
 #include <vector>
-
-namespace RE
-{
-	class hkpAabbPhantom : public hkpPhantom
-	{
-	public:
-		hkAabb aabb;
-		hkArray<hkpCollidable*> overlappingCollidables;
-		bool orderDirty;
-		char pad121[15];
-	};
-	static_assert(sizeof(hkpAabbPhantom) == 0x130);
-}
 
 namespace GrassControl
 {
@@ -34,8 +22,6 @@ namespace Raycast
 			const RE::hkpCdBody* body;
 			RE::TESObjectREFR* hitObject;
 			bool hitCliff;
-
-			RE::NiAVObject* getAVObject();
 		};
 
 		CdBodyPairCollector();
@@ -67,8 +53,6 @@ namespace Raycast
 			float hitFraction;
 			const RE::hkpCdBody* body;
 			bool hitCliff;
-
-			RE::NiAVObject* getAVObject();
 		};
 
 		RayCollector();
@@ -111,8 +95,6 @@ namespace Raycast
 
 	void HandleErrorMessage();
 
-	RE::NiAVObject* getAVObject(const RE::hkpCdBody* body);
-
 	// Cast a ray from 'start' to 'end', returning the first thing it hits
 	// This variant collides with pretty much any solid geometry
 	//	Params:
@@ -146,7 +128,6 @@ namespace Raycast
 
 namespace GrassControl
 {
-	// not actually cached anything here at the moment
 	class RaycastHelper
 	{
 	public:
@@ -170,6 +151,10 @@ namespace GrassControl
 
 		std::unique_ptr<Util::CachedFormList> const Grasses;
 
+		std::unordered_map<RE::FormID, CliffObject> cliffObjects;
+
+		std::unordered_map<RE::FormID, PartIgnoredObject> partIgnoredObjects;
+
 		Raycast::RayCollector* GetRayCollector() const;
 
 		Raycast::CdBodyPairCollector* GetBodyPairCollector() const;
@@ -183,12 +168,6 @@ namespace GrassControl
 
 		bool CanPlaceGrass(RE::TESObjectLAND* land, float x, float y, float z, RE::GrassParam* param, bool& hitCliff, bool& falseCliff) const;
 		float CreateGrassCliff(float x, float y, float z, glm::vec3& Normal, RE::GrassParam* param, bool& falseCliff) const;
-
-		/// @brief Iterate the Raycast Hit object and provide the first TESForm*
-		/// @param r The Rayresult to iterate
-		/// @return True if the predicate function returns true
-		static RE::TESForm* GetRaycastHitBaseForm(const Raycast::RayResult& r);
-		static RE::TESForm* GetRaycastHitBaseForm(const RE::hkpCdBody* body);
 
 		void CheckInactivePhantoms() const;
 

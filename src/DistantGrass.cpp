@@ -458,7 +458,7 @@ namespace GrassControl
 			Patch4 patch4(reinterpret_cast<uintptr_t>(Handle_RemoveGrassFromCell_Call), addr);
 			patch4.ready();
 
-			Util::nopBlock(addr, 0xE9 - 0xC9, 5);
+			Util::NopBlock(addr, 0xE9 - 0xC9, 5);
 			trampoline.write_branch<5>(addr, trampoline.allocate(patch4));
 		}
 
@@ -621,7 +621,7 @@ namespace GrassControl
 		Patch9 patch9(addr, Reg32(REL::Relocate(Reg::R15, Reg::R14)), REL::Relocate(0x48, 0x50), REL::Relocate(0x258, 0x288));
 		patch9.ready();
 
-		Util::nopBlock(addr, 0xB, 0);
+		Util::NopBlock(addr, 0xB, 0);
 		trampoline.write_branch<5>(addr, trampoline.allocate(patch9));
 
 		// Exterior cell buffer must be extended if grass radius is outside of ugrids.

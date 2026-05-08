@@ -5,9 +5,21 @@ namespace Util
 	inline std::string _ovFilePath;
 	const std::string _progressFilePath = R"(PrecacheGrass.txt)";
 
-	std::string getProgressFilePath();
+	void ReportAndFailTimed(const std::string& a_message);
 
-	void nopBlock(uintptr_t addr, int size, int offset);
+	std::string GetProgressFilePath();
+
+	void NopBlock(uintptr_t addr, int size, int offset);
+
+	RE::NiAVObject* GetAVObject(const RE::hkpCdBody* body);
+
+	RE::TESForm* GetRefrBaseForm(RE::TESObjectREFR* ref);
+
+	RE::TESForm* GetBodyBaseForm(const RE::hkpCdBody* body);
+
+	void GetAllObjects(RE::NiAVObject* object, std::set<RE::NiAVObject*>* result);
+
+	RE::NiAVObject* FindClosestObj(RE::NiAVObject* baseObj, RE::NiPoint3& pos);
 
 	class CachedFormList final
 	{
@@ -22,15 +34,15 @@ namespace Util
 
 		bool Contains(unsigned int formId) const;
 
-		std::unordered_set<RE::TESForm*> getAll() const;
+		std::unordered_set<RE::TESForm*> GetAllForms() const;
+
+		std::unordered_set<RE::FormID> GetAllFormIDs() const;
 
 	private:
 		std::unordered_set<RE::TESForm*> Forms = std::unordered_set<RE::TESForm*>();
 
 		std::unordered_set<RE::FormID> Ids = std::unordered_set<RE::FormID>();
 	};
-
-	void report_and_fail_timed(const std::string& a_message);
 
 	// Function object for case insensitive comparison
 	struct case_insensitive_compare

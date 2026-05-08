@@ -200,7 +200,7 @@ namespace GrassControl
 
 					stl::write_thunk_call<PathFileNameSave>(RELOCATION_ID(15204, 15372).address() + REL::Relocate(0x6A7, 0x6A3));
 			
-					if (exists(std::filesystem::path(Util::getProgressFilePath()))) {
+					if (exists(std::filesystem::path(Util::GetProgressFilePath()))) {
 						stl::write_thunk_call<GrassCountIncrement>(RELOCATION_ID(13190, 13335).address() + REL::Relocate(0xD40 - 0xC70, 0xD0));
 						stl::write_thunk_jump<WriteProgress>(RELOCATION_ID(13138, 13278).address() + REL::Relocate(0xF, 0xF));
 					}

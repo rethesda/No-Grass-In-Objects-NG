@@ -193,7 +193,7 @@ namespace GrassControl
 			{
 				static void thunk(RE::BGSGrassManager* GrassMgr, RE::TESObjectCELL* cell, uintptr_t unk)
 				{
-					if (exists(std::filesystem::path(Util::getProgressFilePath())) || cell == nullptr)
+					if (exists(std::filesystem::path(Util::GetProgressFilePath())) || cell == nullptr)
 						return;
 
 					if (Config::OnlyLoadFromCache) {

@@ -97,7 +97,7 @@ namespace GrassControl
 			{
 				bool marketplace = REL::Relocate(false, REL::Module::get().version() >= SKSE::RUNTIME_SSE_1_6_1130);
 
-				if (Config::UseGrassCache && exists(std::filesystem::path(Util::getProgressFilePath()))) {
+				if (Config::UseGrassCache && exists(std::filesystem::path(Util::GetProgressFilePath()))) {
 					stl::write_thunk_call<MainUpdate_Nullsub>(RELOCATION_ID(35565, 36564).address() + REL::Relocate(0x748, (marketplace ? 0xC2b : 0xC26), 0x7EE));
 				}
 

@@ -1,15 +1,16 @@
 #include "GrassControl/Util.h"
+#include "closest_point.h"
 
 namespace Util
 {
-	void report_and_fail_timed(const std::string& a_message)
+	void ReportAndFailTimed(const std::string& a_message)
 	{
 		logger::error(fmt::runtime(a_message));
 		MessageBoxTimeoutA(nullptr, a_message.c_str(), a_message.c_str(), MB_SYSTEMMODAL, 0, 7000);
 		TerminateProcess(GetCurrentProcess(), 1);
 	}
 
-	std::string Util::getProgressFilePath()
+	std::string GetProgressFilePath()
 	{
 		std::string n = _ovFilePath;
 		if (!n.empty()) {
@@ -38,13 +39,217 @@ namespace Util
 		return _ovFilePath;
 	}
 
-	void Util::nopBlock(uintptr_t addr, int size, int offset)
+	void NopBlock(uintptr_t addr, int size, int offset)
 	{
 		DWORD flOldProtect = 0;
 		BOOL change_protection = VirtualProtect(reinterpret_cast<LPVOID>(addr), 0x13, PAGE_EXECUTE_READWRITE, &flOldProtect);
 		if (change_protection) {
 			memset(reinterpret_cast<void*>(addr + offset), 0x90, size);
 		}
+	}
+
+	RE::NiAVObject* GetAVObject(const RE::hkpCdBody* body)
+	{
+		typedef RE::NiAVObject* (*_GetUserData)(const RE::hkpCdBody*);
+		static auto getAVObject = REL::Relocation<_GetUserData>(RELOCATION_ID(76160, 77988));
+		return body ? getAVObject(body) : nullptr;
+	}
+
+	RE::TESForm* GetRefrBaseForm(RE::TESObjectREFR* ref)
+	{
+		RE::TESForm* result = nullptr;
+		try {
+			if (ref != nullptr) {
+				auto bound = ref->GetBaseObject();
+				if (bound != nullptr) {
+					auto baseform = bound->As<RE::TESForm>();
+					if (baseform != nullptr) {
+						result = baseform;
+						return result;
+					}
+				}
+			}
+		} catch (...) {
+		}
+		return result;
+	}
+
+	RE::TESForm* GetBodyBaseForm(const RE::hkpCdBody* body)
+	{
+		RE::TESForm* result = nullptr;
+		try {
+			RE::TESObjectREFR* ref = nullptr;
+
+			auto av = GetAVObject(body);
+			if (av) {
+				ref = av->GetUserData();
+			}
+			if (ref != nullptr) {
+				auto bound = ref->GetBaseObject();
+				if (bound != nullptr) {
+					auto baseform = bound->As<RE::TESForm>();
+					if (baseform != nullptr) {
+						result = baseform;
+						return result;
+					}
+				}
+			}
+		} catch (...) {
+		}
+		return result;
+	}
+
+	void GetAllObjects(RE::NiAVObject* object, std::set<RE::NiAVObject*>* result)
+	{
+		if (object && result)
+			result->insert(object);
+		auto node = object ? object->AsNode() : nullptr;
+		if (node)
+			for (auto child : node->GetChildren())
+				GetAllObjects(child.get(), result);
+	}
+
+	struct ObjCache
+	{
+		struct ShapeVertices
+		{
+			RE::NiAVObject* object;
+			std::vector<RE::NiPoint3> vertices;
+		};
+
+		struct CacheEntry
+		{
+			RE::NiAVObject* baseObj = nullptr;
+			RE::BSFixedString name;
+			std::vector<ShapeVertices> nodes;
+		};
+
+		std::array<CacheEntry, 10> entries;
+		int nextEvict = 0;
+
+		CacheEntry* GetOrBuild(RE::NiAVObject* obj)
+		{
+			for (auto& entry : entries) {
+				if (entry.baseObj == obj)
+					return &entry;
+			}
+
+			CacheEntry& entry = entries[nextEvict];
+			nextEvict = (nextEvict + 1) % 10;
+			entry.baseObj = obj;
+			entry.nodes.clear();
+
+			const RE::BSFixedString& objName = obj->name;
+
+			for (auto& entry : entries) {
+				if (entry.name == objName) {
+
+					if (entry.baseObj != obj) {
+						entry.baseObj = obj;
+
+						size_t i = 0;
+						std::set<RE::NiAVObject*> objects;
+						Util::GetAllObjects(obj, &objects);
+						for (auto object : objects) {
+							if (object->AsTriShape() && i < entry.nodes.size()) {
+								const RE::NiTransform& world = object->world;
+								entry.nodes[i].object = object;
+								i++;
+							}
+						}
+					}
+					return &entry;
+				}
+			}
+
+			std::set<RE::NiAVObject*> objects;
+			Util::GetAllObjects(obj, &objects);
+
+			for (auto object : objects) {
+				if (auto niTriShape = object->AsNiTriShape()) {
+					if (auto modelData = niTriShape->GetRuntimeData().spModelData) {
+						ShapeVertices sv;
+						sv.object = object;
+
+						sv.vertices.reserve(modelData->vertices);
+						for (int i = 0; i < modelData->vertices; i++) {
+							auto vertex = modelData->vertex[i];
+							sv.vertices.push_back(vertex);
+						}
+						entry.nodes.push_back(std::move(sv));
+					}
+				} else if (auto bsTriShape = object->AsTriShape()) {
+					if (auto rendererData = bsTriShape->GetGeometryRuntimeData().rendererData) {
+						ShapeVertices sv;
+						sv.object = object;
+
+						const RE::NiTransform& world = object->world;
+
+						uint32_t vertexSize = rendererData->vertexDesc.GetSize();
+						uint32_t offset = rendererData->vertexDesc.GetAttributeOffset(RE::BSGraphics::Vertex::Attribute::VA_POSITION);
+						uint8_t* base = rendererData->rawVertexData + offset;
+						auto vertexCount = bsTriShape->GetTrishapeRuntimeData().vertexCount;
+
+						sv.vertices.reserve(vertexCount);
+						for (int i = 0; i < vertexCount; i++) {
+							sv.vertices.push_back(*reinterpret_cast<RE::NiPoint3*>(base + vertexSize * i));
+						}
+						entry.nodes.push_back(std::move(sv));
+					}
+				}
+			}
+
+			return &entry;
+		}
+	};
+
+	static thread_local ObjCache objCache;
+
+	RE::NiAVObject* FindClosestObj(RE::NiAVObject* baseObj, RE::NiPoint3& pos)
+	{
+		/*
+				auto triangleCount = bsTriShape->GetTrishapeRuntimeData().triangleCount;
+			uint32_t vertexSize = rendererData->vertexDesc.GetSize();
+			uint32_t offset = rendererData->vertexDesc.GetAttributeOffset(RE::BSGraphics::Vertex::Attribute::VA_POSITION);
+
+			for (std::uint32_t i = 0; i < (triangleCount * 3u); i += 3) {
+				glm::vec3 triangle[3];
+
+				triangle[0] = *reinterpret_cast<glm::vec3*>(&rendererData->rawVertexData[vertexSize * rendererData->rawIndexData[i] + offset]);
+				triangle[1] = *reinterpret_cast<glm::vec3*>(&rendererData->rawVertexData[vertexSize * rendererData->rawIndexData[i + 1] + offset]);
+				triangle[2] = *reinterpret_cast<glm::vec3*>(&rendererData->rawVertexData[vertexSize * rendererData->rawIndexData[i + 2] + offset]);
+
+				auto closestPt = closest_pt_triangle(triangle, glmPos);
+				auto dist = glm::distance2(closestPt, glmPos);
+
+					if (dist < bestDist) {
+						bestObj = object;
+						bestDist = dist;
+					}
+			}
+		*/
+
+		auto* entry = objCache.GetOrBuild(baseObj);
+
+		float bestDist = std::numeric_limits<float>::max();
+		RE::NiAVObject* bestObj = nullptr;
+
+		for (auto& node : entry->nodes) {
+			const RE::NiTransform& world = node.object->world;
+			RE::NiMatrix3 invRotate = world.rotate.Transpose();
+			float invScale = 1.0f / world.scale;
+			RE::NiPoint3 localPos = (invRotate * (pos - world.translate)) * invScale;
+			RE::NiPoint3 bestVert;
+			for (auto& vertex : node.vertices) {
+				float dist = vertex.GetSquaredDistance(localPos);
+				if (dist < bestDist) {
+					bestDist = dist;
+					bestObj = node.object;
+				}
+			}
+		}
+
+		return bestObj;
 	}
 
 	CachedFormList::CachedFormList() = default;
@@ -219,8 +424,13 @@ namespace Util
 		return this->Ids.contains(formId);
 	}
 
-	std::unordered_set<RE::TESForm*> CachedFormList::getAll() const
+	std::unordered_set<RE::TESForm*> CachedFormList::GetAllForms() const
 	{
 		return this->Forms;
+	}
+
+	std::unordered_set<RE::FormID> CachedFormList::GetAllFormIDs() const
+	{
+		return this->Ids;
 	}
 }

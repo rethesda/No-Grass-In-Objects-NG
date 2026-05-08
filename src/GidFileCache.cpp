@@ -15,7 +15,7 @@ namespace GrassControl
 
 	void GidFileCache::FixFileFormat(const bool only_load)
 	{
-		if (exists(std::filesystem::path(Util::getProgressFilePath()))) {
+		if (exists(std::filesystem::path(Util::GetProgressFilePath()))) {
 			try {
 				auto dir = std::filesystem::path("data/grass");
 				if (!exists(dir)) {
@@ -57,7 +57,7 @@ namespace GrassControl
 		patch.ready();
 
 		auto& trampoline = SKSE::GetTrampoline();
-		Util::nopBlock(addr, 0x13, 0);
+		Util::NopBlock(addr, 0x13, 0);
 		trampoline.write_branch<5>(addr, trampoline.allocate(patch));
 
 		// Set the ini stuff.
@@ -106,7 +106,7 @@ namespace GrassControl
 			stl::report_and_fail("Only one instance of GidFileGenerationTask can be created at a time!");
 		}
 
-		FileStream.open(Util::getProgressFilePath(), std::ios::app);
+		FileStream.open(Util::GetProgressFilePath(), std::ios::app);
 		//cur_instance = std::unique_ptr<GidFileGenerationTask>(this);
 	}
 
@@ -140,7 +140,7 @@ namespace GrassControl
 			}
 
 			RE::DebugMessageBox("Grass generation appears to have frozen! Restart the game.");
-			Util::report_and_fail_timed("Grass generation appears to have frozen! Restart the game.");
+			Util::ReportAndFailTimed("Grass generation appears to have frozen! Restart the game.");
 		}
 	}
 
@@ -251,16 +251,16 @@ namespace GrassControl
 
 	void GidFileGenerationTask::Init()
 	{
-		auto fi = std::filesystem::path(Util::getProgressFilePath());
+		auto fi = std::filesystem::path(Util::GetProgressFilePath());
 		if (exists(fi)) {
 			{
 				std::scoped_lock lock(ProgressLocker);
 
 				std::ifstream fs;
 				try {
-					fs = std::ifstream(Util::getProgressFilePath());
+					fs = std::ifstream(Util::GetProgressFilePath());
 					if (!fs) {
-						throw std::system_error(errno, std::system_category(), "failed to open " + Util::getProgressFilePath());
+						throw std::system_error(errno, std::system_category(), "failed to open " + Util::GetProgressFilePath());
 					}
 				} catch (std::system_error& e) {
 					logger::error(fmt::runtime("Error reading PrecacheGrass.txt: " + std::string(e.what())));
@@ -416,7 +416,7 @@ namespace GrassControl
 			FileStream.close();
 		}
 
-		auto fi = std::filesystem::path(Util::getProgressFilePath());
+		auto fi = std::filesystem::path(Util::GetProgressFilePath());
 		if (exists(fi)) {
 			remove(fi);
 		}
@@ -611,7 +611,7 @@ namespace GrassControl
 		if (_grid[ix] == t) {
 			_grid[ix] = nullptr;
 		} else {
-			Util::report_and_fail_timed("Grass generation has crashed!");
+			Util::ReportAndFailTimed("Grass generation has crashed!");
 		}
 	}
 
