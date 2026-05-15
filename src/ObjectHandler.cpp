@@ -105,7 +105,7 @@ namespace GrassControl
 					if (splitSection[0] == "CliffObjects") {
 						logger::info("{} grass objects found", values.size());
 						AddCliffObjects(values, cliffObjects);
-					} else if (splitSection[0] == "RayCastShapes") {
+					} else if (splitSection[0] == "IgnoredShapes") {
 						logger::info("{} ignored triShapes found", values.size());
 						AddPartIgnoredObjects(values, partIgnoredObjects);
 					}
@@ -119,7 +119,7 @@ namespace GrassControl
 						if (section == "CliffObjects") {
 							logger::info("{} grass objects found", values.size());
 							AddCliffObjects(values, cliffObjects);
-						} else if (section == "RayCastShapes") {
+						} else if (section == "IgnoredShapes") {
 							logger::info("{} ignored triShapes found", values.size());
 							AddPartIgnoredObjects(values, partIgnoredObjects);
 						}
