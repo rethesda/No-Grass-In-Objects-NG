@@ -6,19 +6,25 @@
 Raycast::RayCollector::RayCollector() = default;
 Raycast::CdBodyPairCollector::CdBodyPairCollector() = default;
 
-static void DeleteShapePhantom(RE::hkpShapePhantom* phantom)
+static void DeleteShapePhantom(RE::hkpSimpleShapePhantom* phantom)
 {
-	RE::free(phantom);
+	try {
+		RE::free(phantom);
+	} catch (...) {
+	}
 }
 
-static std::shared_ptr<RE::hkpShapePhantom> MakeShapePhantomPtr(RE::hkpShapePhantom* phantom)
+static std::shared_ptr<RE::hkpSimpleShapePhantom> MakeSimpleShapePhantomPtr(RE::hkpSimpleShapePhantom* phantom)
 {
-	return std::shared_ptr<RE::hkpShapePhantom>(phantom, DeleteShapePhantom);
+	return std::shared_ptr<RE::hkpSimpleShapePhantom>(phantom, DeleteShapePhantom);
 }
 
 static void DeleteAabbPhantom(RE::hkpPhantom* phantom)
 {
-	RE::free(phantom);
+	try {
+		RE::free(phantom);
+	} catch (...) {
+	}
 }
 
 static std::shared_ptr<RE::hkpAabbPhantom> MakeAabbPhantomPtr(RE::hkpAabbPhantom* phantom)
@@ -386,16 +392,16 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 	}
 
 	if (!phantom) {
-		using createSimpleShapePhantom_t = RE::hkpShapePhantom* (*)(RE::hkpShapePhantom*, RE::hkpShape*, const RE::hkTransform&, uint32_t);
+		using createSimpleShapePhantom_t = RE::hkpSimpleShapePhantom* (*)(RE::hkpShapePhantom*, RE::hkpShape*, const RE::hkTransform&, uint32_t);
 		REL::Relocation<createSimpleShapePhantom_t> createSimpleShapePhantom{ RELOCATION_ID(60675, 61535) };
-		auto newPhantom = RE::malloc<RE::hkpShapePhantom>(0x1C0);
+		auto newPhantom = RE::malloc<RE::hkpSimpleShapePhantom>(0x1C0);
 
 		if (!newPhantom)
 			return {};
 
 		newPhantom = createSimpleShapePhantom(newPhantom, reinterpret_cast<RE::hkpShape*>(currentShape->referencedObject.get()), transform, 0);
 
-		phantom = MakeShapePhantomPtr(newPhantom);
+		phantom = MakeSimpleShapePhantomPtr(newPhantom);
 
 		if (phantom->GetShape()) {
 			bhkWorld->worldLock.LockForWrite();
@@ -443,21 +449,12 @@ Raycast::RayResult Raycast::hkpPhantomCast(glm::vec4& start, const glm::vec4& en
 	}
 
 	bhkWorld->worldLock.LockForWrite();
-
-	using SetPosition_t = void (*)(RE::hkpShapePhantom*, RE::hkVector4);
-	REL::Relocation<SetPosition_t> SetPosition{ RELOCATION_ID(60791, 61653) };
-
-	SetPosition(phantom.get(), vecA);
-
+	phantom->SetPosition(vecA);
 	bhkWorld->worldLock.UnlockForWrite();
 
 	try {
 		bhkWorld->worldLock.LockForRead();
-
-		using GetPenetrations_t = void (*)(RE::hkpShapePhantom*, RE::hkpCdBodyPairCollector*, RE::hkpCollisionInput*);
-		REL::Relocation<GetPenetrations_t> GetPenetrations{ RELOCATION_ID(60682, 61543) };
-
-		GetPenetrations(phantom.get(), reinterpret_cast<RE::hkpCdBodyPairCollector*>(cache->GetBodyPairCollector()), nullptr);
+		phantom->GetPenetrations(*reinterpret_cast<RE::hkpCdBodyPairCollector*>(cache->GetBodyPairCollector()), nullptr);
 
 	} catch (...) {
 		HandleErrorMessage();
@@ -699,6 +696,9 @@ namespace GrassControl
 			return z;
 		}
 
+		if (!this->Cliffs)
+			return z;
+
 		RE::TESGrass* grassForm = nullptr;
 
 		if (param) {
@@ -734,7 +734,8 @@ namespace GrassControl
 				return z;
 			}
 
-			if ((this->Cliffs && this->Cliffs->Contains(Util::GetBodyBaseForm(body)) || this->cliffObjects.contains(Util::GetBodyBaseForm(body)->formID)) && pos.z > bestPos.z) {
+			auto bodyBaseForm = Util::GetBodyBaseForm(body);
+			if (bodyBaseForm && ((this->Cliffs && this->Cliffs->Contains(bodyBaseForm)) || this->cliffObjects.contains(bodyBaseForm->formID)) && pos.z > bestPos.z) {
 				normal *= -1;
 
 				if (grassForm) {
@@ -764,7 +765,7 @@ namespace GrassControl
 				for (const auto& allowed : cliffObjInfo.allowedShapes) {
 					std::string compareName = baseObjName + ":" + allowed;
 
-					if (closestObj && (closestObj->name != allowed.c_str() && closestObj->name != compareName.c_str())) {
+					if (closestObj && closestObj->name != allowed.c_str() && closestObj->name != compareName.c_str()) {
 						return z;
 					}
 				}
@@ -772,7 +773,7 @@ namespace GrassControl
 				for (const auto& blocked : cliffObjInfo.blockedShapes) {
 					std::string compareName = baseObjName + ":" + blocked;
 
-					if (closestObj && (closestObj->name == blocked.c_str()) || closestObj->name == compareName.c_str()) {
+					if (closestObj && (closestObj->name == blocked.c_str() || closestObj->name == compareName.c_str())) {
 						return z;
 					}
 				}
@@ -830,7 +831,11 @@ namespace GrassControl
 		if (!r.hitObject)
 			return false;
 
-		return this->Cliffs->Contains(Util::GetRefrBaseForm(r.hitObject)) || this->cliffObjects.contains(Util::GetRefrBaseForm(r.hitObject)->formID);
+		auto* baseForm = Util::GetRefrBaseForm(r.hitObject);
+		if (!baseForm)
+			return false;
+
+		return (this->Cliffs && this->Cliffs->Contains(baseForm)) || this->cliffObjects.contains(baseForm->formID);
 	}
 
 	void RaycastHelper::CheckInactivePhantoms() const
@@ -850,6 +855,8 @@ namespace GrassControl
 				bhkWorld->worldLock.LockForWrite();
 				Raycast::phantom->world->RemovePhantom(Raycast::phantom.get());
 				bhkWorld->worldLock.UnlockForWrite();
+
+				logger::debug("Removed shape phantom from world due to inactivity.");
 			}
 		}
 
@@ -870,6 +877,8 @@ namespace GrassControl
 				bhkWorld->worldLock.LockForWrite();
 				Raycast::AabbPhantom->world->RemovePhantom(Raycast::AabbPhantom.get());
 				bhkWorld->worldLock.UnlockForWrite();
+
+				logger::debug("Removed aabb phantom from world due to inactivity.");
 			}
 		}
 

@@ -29,7 +29,10 @@ namespace Util
 					_ovFilePath = fpath;
 				}
 			}
-		} catch (...) {
+		} catch (std::filesystem::filesystem_error e) {
+			logger::error(fmt::runtime("Failed to find progress file path! Exception occured: {}"), e.what());
+			_ovFilePath = _progressFilePath;
+			return _ovFilePath;
 		}
 
 		if (_ovFilePath.empty()) {
@@ -58,44 +61,42 @@ namespace Util
 	RE::TESForm* GetRefrBaseForm(RE::TESObjectREFR* ref)
 	{
 		RE::TESForm* result = nullptr;
-		try {
-			if (ref != nullptr) {
-				auto bound = ref->GetBaseObject();
-				if (bound != nullptr) {
-					auto baseform = bound->As<RE::TESForm>();
-					if (baseform != nullptr) {
-						result = baseform;
-						return result;
-					}
+
+		if (ref != nullptr) {
+			auto bound = ref->GetBaseObject();
+			if (bound != nullptr) {
+				auto baseform = bound->As<RE::TESForm>();
+				if (baseform != nullptr) {
+					result = baseform;
+					return result;
 				}
 			}
-		} catch (...) {
 		}
+
 		return result;
 	}
 
 	RE::TESForm* GetBodyBaseForm(const RE::hkpCdBody* body)
 	{
 		RE::TESForm* result = nullptr;
-		try {
-			RE::TESObjectREFR* ref = nullptr;
 
-			auto av = GetAVObject(body);
-			if (av) {
-				ref = av->GetUserData();
-			}
-			if (ref != nullptr) {
-				auto bound = ref->GetBaseObject();
-				if (bound != nullptr) {
-					auto baseform = bound->As<RE::TESForm>();
-					if (baseform != nullptr) {
-						result = baseform;
-						return result;
-					}
+		RE::TESObjectREFR* ref = nullptr;
+
+		auto av = GetAVObject(body);
+		if (av) {
+			ref = av->GetUserData();
+		}
+		if (ref != nullptr) {
+			auto bound = ref->GetBaseObject();
+			if (bound != nullptr) {
+				auto baseform = bound->As<RE::TESForm>();
+				if (baseform != nullptr) {
+					result = baseform;
+					return result;
 				}
 			}
-		} catch (...) {
 		}
+
 		return result;
 	}
 
@@ -143,7 +144,6 @@ namespace Util
 
 			for (auto& entry : entries) {
 				if (entry.name == objName) {
-
 					if (entry.baseObj != obj) {
 						entry.baseObj = obj;
 
